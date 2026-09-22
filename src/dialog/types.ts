@@ -17,6 +17,10 @@ export interface ProfileData {
   motivation?: string;
   verified?: boolean;
   verifiedAt?: number;
+  /** Служебное: id сообщения с вопросом о городе — чтобы свернуть его после ответа текстом/геопозицией. */
+  cityPromptId?: string;
+  /** Служебное: id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */
+  serviceMessageIds?: string[];
 }
 
 export type Step =

@@ -5,35 +5,54 @@ import { careerScenario } from '../src/dialog/flow.js';
 import type { BotContext, ProfileData, Step } from '../src/dialog/types.js';
 import { isValidInnFormat } from '../src/services/verification.js';
 import { matchVacancies } from '../src/services/matching.js';
+import { nearestCity } from '../src/services/geo.js';
 
 interface FakeCtxOptions {
   text?: string;
   callbackPayload?: string;
+  location?: { latitude: number; longitude: number };
 }
 
 function fakeCtx(options: FakeCtxOptions = {}) {
   const replies: string[] = [];
   const edits: string[] = [];
+  const deleted: string[] = [];
   const answeredCallbacks: number[] = [];
+  let nextMid = 0;
+  const isCallback = options.callbackPayload !== undefined;
   const ctx = {
-    message: options.text !== undefined ? { body: { text: options.text } } : undefined,
-    callback: options.callbackPayload !== undefined ? { payload: options.callbackPayload } : undefined,
+    message: isCallback ? undefined : { body: { text: options.text ?? null } },
+    callback: isCallback ? { payload: options.callbackPayload } : undefined,
+    location: options.location,
     chatId: 42,
-    has: (filter: string) => (filter === 'message_callback' ? options.callbackPayload !== undefined : options.text !== undefined),
+    messageId: 'clicked',
+    has: (filter: string) => (filter === 'message_callback' ? isCallback : !isCallback),
     reply: async (text: string) => {
       replies.push(text);
-      return {} as never;
+      nextMid += 1;
+      return { body: { mid: `m${nextMid}` } } as never;
     },
     editMessage: async (extra: { text?: string | null }) => {
       edits.push(extra.text ?? '');
       return {} as never;
     },
+    deleteMessage: async (id: string) => {
+      deleted.push(id);
+      return {} as never;
+    },
+    sendAction: async () => ({}) as never,
     answerOnCallback: async () => {
       answeredCallbacks.push(1);
       return {} as never;
     },
+    api: {
+      editMessage: async (_id: string, extra: { text?: string | null }) => {
+        edits.push(extra.text ?? '');
+        return {} as never;
+      },
+    },
   };
-  return { ctx: ctx as unknown as BotContext, replies, edits, answeredCallbacks };
+  return { ctx: ctx as unknown as BotContext, replies, edits, deleted, answeredCallbacks };
 }
 
 function fakeState(step: Step): ScenarioState<ProfileData, Step> {
@@ -41,16 +60,20 @@ function fakeState(step: Step): ScenarioState<ProfileData, Step> {
 }
 
 async function runStep(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies, edits } = fakeCtx(ctxOptions);
+  const { ctx, replies, edits, deleted } = fakeCtx(ctxOptions);
   const stepFn = careerScenario.steps[step];
   const transitionResult = await stepFn({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, edits, ctx };
+  return { transitionResult, replies, edits, deleted, ctx };
 }
 
 async function runIntercept(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies, edits } = fakeCtx(ctxOptions);
+  const { ctx, replies, edits, deleted } = fakeCtx(ctxOptions);
   const transitionResult = await careerScenario.intercept?.({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, edits, ctx };
+  return { transitionResult, replies, edits, deleted, ctx };
+}
+
+function transitionData(result: unknown): Partial<ProfileData> | undefined {
+  return (result as { data?: Partial<ProfileData> }).data;
 }
 
 test('await_name: пустое имя переспрашивает (stay)', async () => {
@@ -163,6 +186,83 @@ test('isValidInnFormat: принимает 10 и 12 цифр, отклоняет
   assert.equal(isValidInnFormat('12345'), false);
   assert.equal(isValidInnFormat('12345678901234'), false);
   assert.equal(isValidInnFormat('abcdefghij'), false);
+});
+
+test('служебные сообщения: повторная ошибка удаляет предыдущую, в чате висит одна', async () => {
+  const { transitionResult, deleted } = await runStep(
+    'await_study_stage',
+    { serviceMessageIds: ['old-error'] },
+    { text: 'просто текст' },
+  );
+  assert.equal(transitionResult.type, 'stay');
+  assert.deepEqual(deleted, ['old-error']);
+  assert.deepEqual(transitionData(transitionResult), { serviceMessageIds: ['m1'] });
+});
+
+test('служебные сообщения: правильный ответ удаляет висящую ошибку', async () => {
+  const { transitionResult, deleted } = await runStep(
+    'await_study_stage',
+    { serviceMessageIds: ['old-error'] },
+    { callbackPayload: 'graduated' },
+  );
+  assert.equal(transitionResult.type, 'goto');
+  assert.deepEqual(deleted, ['old-error']);
+  assert.deepEqual(transitionData(transitionResult), { studyStage: 'graduated', serviceMessageIds: [] });
+});
+
+test('город: быстрая кнопка', async () => {
+  const { transitionResult, edits } = await runStep('await_city', { goal: 'job', cityPromptId: 'p1' }, { callbackPayload: 'city:kzn' });
+  assert.equal((transitionResult as { step: Step }).step, 'await_field');
+  assert.deepEqual(transitionData(transitionResult), { city: 'Казань' });
+  assert.ok(edits[0].includes('Казань'));
+});
+
+test('город: геопозиция рядом с известным городом', async () => {
+  const { transitionResult, edits } = await runStep(
+    'await_city',
+    { goal: 'job', cityPromptId: 'p1' },
+    { location: { latitude: 55.75, longitude: 49.2 } },
+  );
+  assert.deepEqual(transitionData(transitionResult), { city: 'Казань' });
+  assert.ok(edits[0].includes('по геопозиции'));
+});
+
+test('город: геопозиция далеко от всех городов — честно переспрашиваем', async () => {
+  const { transitionResult, replies } = await runStep(
+    'await_city',
+    { goal: 'job', cityPromptId: 'p1' },
+    { location: { latitude: 43.1, longitude: 131.9 } },
+  );
+  assert.equal(transitionResult.type, 'stay');
+  assert.ok(replies[0].includes('Не смог определить город'));
+});
+
+test('город: текст по-прежнему принимается', async () => {
+  const { transitionResult } = await runStep('await_city', { goal: 'job', cityPromptId: 'p1' }, { text: 'Тула' });
+  assert.deepEqual(transitionData(transitionResult), { city: 'Тула' });
+});
+
+test('intercept: «✏️ Изменить» у города присылает новый вопрос и запоминает его id', async () => {
+  const { transitionResult, replies } = await runIntercept('await_salary', { city: 'Тула' }, { callbackPayload: 'edit:city' });
+  assert.equal(transitionResult!.type, 'stay');
+  assert.ok(replies[0].includes('Изменить: Город'));
+  assert.deepEqual(transitionData(transitionResult), { cityPromptId: 'm1' });
+});
+
+test('intercept: быстрая кнопка города на более позднем шаге обновляет город', async () => {
+  const { transitionResult } = await runIntercept('await_salary', { city: 'Тула', cityPromptId: 'p1' }, { callbackPayload: 'city:spb' });
+  assert.deepEqual(transitionData(transitionResult), { city: 'Санкт-Петербург' });
+});
+
+test('intercept: геопозиция до вопроса о городе не перехватывается', async () => {
+  const { transitionResult } = await runIntercept('await_name', {}, { location: { latitude: 55.75, longitude: 37.6 } });
+  assert.equal(transitionResult, undefined);
+});
+
+test('nearestCity: находит ближайший город и расстояние', () => {
+  const { city, distanceKm } = nearestCity(59.9, 30.3);
+  assert.equal(city.name, 'Санкт-Петербург');
+  assert.ok(distanceKm < 10);
 });
 
 test('matchVacancies: подбирает не больше лимита и учитывает направление', () => {

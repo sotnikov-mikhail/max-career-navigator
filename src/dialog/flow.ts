@@ -1,8 +1,9 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
-import { choiceKeyboard, choiceKeyboardRow, actionsKeyboard } from '../keyboards.js';
+import { choiceKeyboard, choiceKeyboardRow, actionsKeyboard, cityKeyboard } from '../keyboards.js';
 import { matchVacancies, type Vacancy } from '../services/matching.js';
 import { isValidInnFormat, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
+import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
 import type { BotContext, ProfileData, Step, Goal } from './types.js';
 import {
   GREETING,
@@ -12,7 +13,10 @@ import {
   GOAL_OPTIONS,
   GOAL_PROMPT,
   cityPrompt,
+  CITY_EDIT_PROMPT,
   CITY_EMPTY_PROMPT,
+  cityTooFarPrompt,
+  cityRecap,
   FIELD_OPTIONS,
   fieldPrompt,
   interestPrompt,
@@ -43,6 +47,7 @@ import {
 } from './script.js';
 
 type Step_ = ScenarioStep<BotContext, ProfileData, Step>;
+type Transition = Awaited<ReturnType<Step_>>;
 
 /** Реестр всех закрытых вопросов сценария. Нужен, чтобы:
  * 1) распознать клик по кнопке из уже пройденного блока (пользователь хочет исправить старый ответ);
@@ -103,6 +108,54 @@ async function sendChoiceRow(ctx: BotContext, text: string, options: ChoiceOptio
   await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboardRow(options)] });
 }
 
+/** Вопрос о городе с кнопкой геопозиции и быстрыми городами. Возвращает id сообщения, чтобы потом свернуть его. */
+async function sendCityPrompt(ctx: BotContext, text: string): Promise<string> {
+  const message = await ctx.reply(text, { format: 'markdown', attachments: [cityKeyboard(KNOWN_CITIES)] });
+  return message.body.mid;
+}
+
+/** Индикатор «печатает…» — некритичный, ошибки не должны ломать сценарий. */
+async function showTyping(ctx: BotContext): Promise<void> {
+  try {
+    await ctx.sendAction('typing_on');
+  } catch (error) {
+    console.error('Не удалось показать «печатает…» (не критично)', error);
+  }
+}
+
+/** Короткая пауза, чтобы «печатает…» успел стать заметным там, где бот «думает» (подбор, проверка). */
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function deleteServiceMessages(ctx: BotContext, data: ProfileData): Promise<void> {
+  for (const id of data.serviceMessageIds ?? []) {
+    try {
+      await ctx.deleteMessage(id);
+    } catch (error) {
+      console.error('Не удалось удалить служебное сообщение (не критично)', error);
+    }
+  }
+}
+
+/**
+ * Сообщение об ошибке ввода («выбери кнопкой», «имя не должно быть пустым» и т.п.).
+ * Предыдущее такое сообщение удаляется, чтобы при повторных ошибках в чате висело не больше одного,
+ * а id нового запоминается — его удалит `advance`, как только пользователь ответит правильно.
+ */
+async function sendService(ctx: BotContext, data: ProfileData, text: string): Promise<Transition> {
+  await deleteServiceMessages(ctx, data);
+  const message = await ctx.reply(text);
+  return transition.stay({ serviceMessageIds: [message.body.mid] });
+}
+
+/** Переход к следующему шагу с уборкой служебных сообщений об ошибках. */
+async function advance(ctx: BotContext, data: ProfileData, step: Step, patch: Partial<ProfileData>): Promise<Transition> {
+  if (!data.serviceMessageIds?.length) return transition.goto(step, patch);
+  await deleteServiceMessages(ctx, data);
+  return transition.goto(step, { ...patch, serviceMessageIds: [] });
+}
+
 /**
  * Подтверждает нажатие кнопки (убирает спиннер загрузки у пользователя).
  * MAX отклоняет пустое тело `{}` ошибкой 400 «message or notification required» —
@@ -135,6 +188,42 @@ async function finalizeChoice(ctx: BotContext, field: keyof ProfileData, option:
   } catch (error) {
     console.error('Не удалось схлопнуть клавиатуру вопроса (не критично)', error);
   }
+}
+
+/** Сворачивает вопрос о городе. Id берём сохранённый: при ответе текстом или геопозицией
+ * ctx.messageId указывает на сообщение пользователя, а не на вопрос. */
+async function finalizeCity(ctx: BotContext, promptId: string | undefined, city: string, fromGeo: boolean): Promise<void> {
+  if (!promptId) return;
+  try {
+    await ctx.api.editMessage(promptId, {
+      text: cityRecap(city, fromGeo),
+      format: 'markdown',
+      attachments: [actionsKeyboard([{ label: '✏️ Изменить', payload: 'edit:city' }])],
+    });
+  } catch (error) {
+    console.error('Не удалось свернуть вопрос о городе (не критично)', error);
+  }
+}
+
+type CityAnswer = { city: string; fromGeo: boolean } | { error: string };
+
+/** Разбирает ответ на вопрос о городе: кнопка быстрого города, геопозиция или (если разрешено) текст. */
+async function resolveCity(ctx: BotContext, allowText: boolean): Promise<CityAnswer | undefined> {
+  const payload = ctx.callback?.payload;
+  if (payload?.startsWith('city:')) {
+    await acknowledgeCallback(ctx);
+    const known = cityById(payload.slice('city:'.length));
+    return known ? { city: known.name, fromGeo: false } : undefined;
+  }
+  const location = ctx.location;
+  if (location) {
+    const { city, distanceKm } = nearestCity(location.latitude, location.longitude);
+    if (distanceKm > MAX_CITY_DISTANCE_KM) return { error: cityTooFarPrompt(city.name, distanceKm) };
+    return { city: city.name, fromGeo: true };
+  }
+  if (!allowText) return undefined;
+  const text = readText(ctx);
+  return text ? { city: text, fromGeo: false } : undefined;
 }
 
 /** Читает выбранный вариант из нажатия кнопки, подтверждает колбэк и схлопывает вопрос. */
@@ -180,130 +269,98 @@ const greet: Step_ = async ({ ctx }) => {
 
 const awaitName: Step_ = async ({ ctx, data }) => {
   const name = readText(ctx);
-  if (!name) {
-    await ctx.reply(NAME_EMPTY_PROMPT);
-    return transition.stay();
-  }
+  if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
   await sendChoice(ctx, studyStagePrompt(name), STUDY_STAGE_OPTIONS);
-  return transition.goto('await_study_stage', { name });
+  return advance(ctx, data, 'await_study_stage', { name });
 };
 
-const awaitStudyStage: Step_ = async ({ ctx }) => {
+const awaitStudyStage: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'studyStage', STUDY_STAGE_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   await sendChoiceRow(ctx, GOAL_PROMPT, GOAL_OPTIONS);
-  return transition.goto('await_goal', { studyStage: match.id });
+  return advance(ctx, data, 'await_goal', { studyStage: match.id });
 };
 
-const awaitGoal: Step_ = async ({ ctx }) => {
+const awaitGoal: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'goal', GOAL_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
-  await sendText(ctx, cityPrompt());
-  return transition.goto('await_city', { goal: match.id as Goal });
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
+  const cityPromptId = await sendCityPrompt(ctx, cityPrompt());
+  return advance(ctx, data, 'await_city', { goal: match.id as Goal, cityPromptId });
 };
 
 const awaitCity: Step_ = async ({ ctx, data }) => {
-  const city = readText(ctx);
-  if (!city) {
-    await ctx.reply(CITY_EMPTY_PROMPT);
-    return transition.stay();
-  }
+  const answer = await resolveCity(ctx, true);
+  if (!answer) return sendService(ctx, data, CITY_EMPTY_PROMPT);
+  if ('error' in answer) return sendService(ctx, data, answer.error);
+  await finalizeCity(ctx, data.cityPromptId, answer.city, answer.fromGeo);
   const goal = (data.goal ?? 'job') as Goal;
   await sendChoice(ctx, fieldPrompt(goal), FIELD_OPTIONS);
-  return transition.goto('await_field', { city });
+  return advance(ctx, data, 'await_field', { city: answer.city });
 };
 
-const awaitField: Step_ = async ({ ctx }) => {
+const awaitField: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'field', FIELD_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   await sendText(ctx, interestPrompt());
-  return transition.goto('await_interest', { field: match.id });
+  return advance(ctx, data, 'await_interest', { field: match.id });
 };
 
-const awaitInterest: Step_ = async ({ ctx }) => {
+const awaitInterest: Step_ = async ({ ctx, data }) => {
   const interest = readText(ctx);
-  if (!interest) {
-    await ctx.reply(INTEREST_EMPTY_PROMPT);
-    return transition.stay();
-  }
+  if (!interest) return sendService(ctx, data, INTEREST_EMPTY_PROMPT);
   await sendChoice(ctx, employmentPrompt(), EMPLOYMENT_OPTIONS);
-  return transition.goto('await_employment', { interest });
+  return advance(ctx, data, 'await_employment', { interest });
 };
 
 const CURRENTLY_WORKING_IDS = new Set(['side_job', 'working']);
 
 const awaitEmployment: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'employment', EMPLOYMENT_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   const goal = (data.goal ?? 'job') as Goal;
   if (CURRENTLY_WORKING_IDS.has(match.id)) {
     await sendChoice(ctx, EMPLOYMENT_FORMAL_PROMPT, EMPLOYMENT_FORMAL_OPTIONS);
-    return transition.goto('await_employment_formal', { employment: match.id });
+    return advance(ctx, data, 'await_employment_formal', { employment: match.id });
   }
   await sendChoice(ctx, salaryPrompt(goal), SALARY_OPTIONS);
-  return transition.goto('await_salary', { employment: match.id });
+  return advance(ctx, data, 'await_salary', { employment: match.id });
 };
 
 const awaitEmploymentFormal: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'employmentFormal', EMPLOYMENT_FORMAL_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   const goal = (data.goal ?? 'job') as Goal;
   await sendChoice(ctx, salaryPrompt(goal), SALARY_OPTIONS);
-  return transition.goto('await_salary', { employmentFormal: match.id });
+  return advance(ctx, data, 'await_salary', { employmentFormal: match.id });
 };
 
-const awaitSalary: Step_ = async ({ ctx }) => {
+const awaitSalary: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'salary', SALARY_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   await sendChoice(ctx, WORK_FORMAT_PROMPT, WORK_FORMAT_OPTIONS);
-  return transition.goto('await_work_format', { salary: match.id });
+  return advance(ctx, data, 'await_work_format', { salary: match.id });
 };
 
-const awaitWorkFormat: Step_ = async ({ ctx }) => {
+const awaitWorkFormat: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'workFormat', WORK_FORMAT_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   await sendChoice(ctx, OVERTIME_PROMPT, OVERTIME_OPTIONS);
-  return transition.goto('await_overtime', { workFormat: match.id });
+  return advance(ctx, data, 'await_overtime', { workFormat: match.id });
 };
 
 const awaitOvertime: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'overtime', OVERTIME_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
   const goal = (data.goal ?? 'job') as Goal;
   await sendChoice(ctx, motivationPrompt(goal), MOTIVATION_OPTIONS);
-  return transition.goto('await_motivation', { overtime: match.id });
+  return advance(ctx, data, 'await_motivation', { overtime: match.id });
 };
 
 const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'motivation', MOTIVATION_OPTIONS);
-  if (!match) {
-    await ctx.reply(invalidChoicePrompt());
-    return transition.stay();
-  }
+  if (!match) return sendService(ctx, data, invalidChoicePrompt());
+  await showTyping(ctx);
+  await pause(700);
   const finalData: ProfileData = { ...data, motivation: match.id };
   const completeness = computeCompleteness(finalData);
   const offers = matchVacancies(finalData);
@@ -316,13 +373,15 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
       ]),
     ],
   });
-  return transition.goto('await_final_action', { motivation: match.id });
+  return advance(ctx, data, 'await_final_action', { motivation: match.id });
 };
 
 /** Показывает подобранные демо-предложения. Переиспользуется на шагах финала и ожидания ИНН —
  * кнопка «Посмотреть предложения» на итоговом сообщении остаётся кликабельной и после перехода
  * к вводу ИНН, поэтому оба шага должны уметь её обработать. */
 async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
+  await showTyping(ctx);
+  await pause(600);
   const offers = matchVacancies(data);
   const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
   await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
@@ -357,53 +416,71 @@ const awaitInn: Step_ = async ({ ctx, data }) => {
     return transition.stay();
   }
   const inn = readText(ctx);
-  if (!inn || !isValidInnFormat(inn)) {
-    await ctx.reply(VERIFY_INN_INVALID);
-    return transition.stay();
-  }
+  if (!inn || !isValidInnFormat(inn)) return sendService(ctx, data, VERIFY_INN_INVALID);
+  await deleteServiceMessages(ctx, data);
   await sendText(ctx, VERIFY_PROCESSING);
+  await showTyping(ctx);
   await runDemoVerification();
-  const chatId = ctx.chatId ?? 0;
-  submitToLaborExchangeMock(chatId, data);
+  const { cityPromptId: _cityPromptId, serviceMessageIds: _serviceMessageIds, ...profile } = data;
+  submitToLaborExchangeMock(ctx.chatId ?? 0, profile);
   await sendText(ctx, verifySuccess());
   return transition.complete();
 };
+
+/**
+ * Обработка кнопок из сообщений выше по чату. Кнопки старых сообщений в MAX остаются
+ * кликабельными и после того, как чат ушёл вперёд — без этого перехвата клик попадал бы
+ * в текущий шаг и выглядел как «выбери один из вариантов ниже».
+ */
+async function interceptStale(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition | undefined> {
+  // Геопозиция, отправленная не на шаге города (например, после «✏️ Изменить» у города).
+  if (step !== 'await_city' && data.cityPromptId && ctx.location) {
+    const answer = await resolveCity(ctx, false);
+    if (!answer) return undefined;
+    if ('error' in answer) return sendService(ctx, data, answer.error);
+    await finalizeCity(ctx, data.cityPromptId, answer.city, answer.fromGeo);
+    return transition.stay({ city: answer.city });
+  }
+
+  if (!ctx.has('message_callback')) return undefined;
+  const payload = ctx.callback?.payload;
+
+  if (payload === 'edit:city') {
+    await acknowledgeCallback(ctx);
+    const cityPromptId = await sendCityPrompt(ctx, CITY_EDIT_PROMPT);
+    return transition.stay({ cityPromptId });
+  }
+
+  if (payload?.startsWith('city:') && step !== 'await_city') {
+    const answer = await resolveCity(ctx, false);
+    if (!answer || 'error' in answer) return undefined;
+    await finalizeCity(ctx, ctx.messageId, answer.city, false);
+    return transition.stay({ city: answer.city });
+  }
+
+  if (payload?.startsWith('edit:')) {
+    const field = payload.slice('edit:'.length) as keyof ProfileData;
+    const config = CHOICE_FIELDS.find((c) => c.field === field);
+    if (!config) return undefined;
+    await acknowledgeCallback(ctx);
+    await sendChoice(ctx, `✏️ **Изменить: ${config.title}**\n\nВыбери новый вариант:`, config.options);
+    return transition.stay();
+  }
+
+  const match = findChoiceField(payload);
+  if (!match) return undefined;
+  if (match.config.field === STEP_FIELD[step]) return undefined;
+  await acknowledgeCallback(ctx);
+  await finalizeChoice(ctx, match.config.field, match.option);
+  return transition.stay({ [match.config.field]: match.option.id } as Partial<ProfileData>);
+}
 
 export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   id: 'career-navigator',
   initialStep: 'greet',
   idleTimeoutMs: 30 * 60 * 1000,
   createData: () => ({}),
-  /**
-   * Срабатывает перед каждым шагом. Обрабатывает две ситуации с кнопками из чата выше:
-   * 1) payload вида `edit:<field>` — нажата кнопка «✏️ Изменить» на уже свёрнутом вопросе,
-   *    заново показываем варианты для этого поля;
-   * 2) payload — валидный вариант другого (не текущего) вопроса — пользователь кликнул
-   *    старую кнопку до того, как появилась «✏️ Изменить» (например, до перерисовки),
-   *    обновляем поле и сворачиваем этот вопрос так же, как обычный ответ.
-   * Кнопки старых сообщений в MAX остаются кликабельными даже после того, как чат ушёл
-   * вперёд — без этого перехвата это выглядело бы как «выбери один из вариантов ниже».
-   */
-  intercept: async ({ ctx, state, data }) => {
-    if (!ctx.has('message_callback')) return undefined;
-    const payload = ctx.callback?.payload;
-
-    if (payload?.startsWith('edit:')) {
-      const field = payload.slice('edit:'.length) as keyof ProfileData;
-      const config = CHOICE_FIELDS.find((c) => c.field === field);
-      if (!config) return undefined;
-      await acknowledgeCallback(ctx);
-      await sendChoice(ctx, `✏️ **Изменить: ${config.title}**\n\nВыбери новый вариант:`, config.options);
-      return transition.stay();
-    }
-
-    const match = findChoiceField(payload);
-    if (!match) return undefined;
-    if (match.config.field === STEP_FIELD[state.step]) return undefined;
-    await acknowledgeCallback(ctx);
-    await finalizeChoice(ctx, match.config.field, match.option);
-    return transition.stay({ [match.config.field]: match.option.id } as Partial<ProfileData>);
-  },
+  intercept: ({ ctx, state, data }) => interceptStale(ctx, state.step, data),
   steps: {
     greet,
     await_name: awaitName,

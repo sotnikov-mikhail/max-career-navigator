@@ -65,10 +65,27 @@ export const GOAL_OPTIONS: ChoiceOption[] = [
 export const GOAL_PROMPT = `${stepHeader(2, '🎯', 'Цель')}\n\nЧто для тебя сейчас важнее?`;
 
 export function cityPrompt(): string {
-  return `${stepHeader(3, '📍', 'Город')}\n\nВ каком городе ты сейчас ищешь возможности? (Напиши название города)`;
+  return (
+    `${stepHeader(3, '📍', 'Город')}\n\n` +
+    'В каком городе ты сейчас ищешь возможности?\n\n' +
+    'Выбери кнопкой, отправь геопозицию 📍 или просто напиши название.'
+  );
 }
 
-export const CITY_EMPTY_PROMPT = 'Название города не должно быть пустым. В каком ты городе?';
+export const CITY_EDIT_PROMPT = `✏️ ${fmt.bold('Изменить: Город')}\n\nВыбери кнопкой или отправь геопозицию 📍`;
+
+export const CITY_EMPTY_PROMPT = 'Название города не должно быть пустым. Выбери кнопкой, отправь геопозицию или напиши город.';
+
+export function cityTooFarPrompt(nearestName: string, distanceKm: number): string {
+  return (
+    `Не смог определить город по геопозиции: ближайший из нашей базы — ${nearestName}, но до него ~${Math.round(distanceKm)} км. ` +
+    'Напиши свой город текстом.'
+  );
+}
+
+export function cityRecap(city: string, fromGeo: boolean): string {
+  return `✅ ${fmt.bold('Город')}: 📍 ${fmt.escape(city)}${fromGeo ? ' (по геопозиции)' : ''}`;
+}
 
 export const FIELD_OPTIONS: ChoiceOption[] = [
   { id: 'it', label: '💻 IT и цифра' },
