@@ -114,20 +114,6 @@ async function sendCityPrompt(ctx: BotContext, text: string): Promise<string> {
   return message.body.mid;
 }
 
-/** Индикатор «печатает…» — некритичный, ошибки не должны ломать сценарий. */
-async function showTyping(ctx: BotContext): Promise<void> {
-  try {
-    await ctx.sendAction('typing_on');
-  } catch (error) {
-    console.error('Не удалось показать «печатает…» (не критично)', error);
-  }
-}
-
-/** Короткая пауза, чтобы «печатает…» успел стать заметным там, где бот «думает» (подбор, проверка). */
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function deleteServiceMessages(ctx: BotContext, data: ProfileData): Promise<void> {
   for (const id of data.serviceMessageIds ?? []) {
     try {
@@ -359,8 +345,6 @@ const awaitOvertime: Step_ = async ({ ctx, data }) => {
 const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const match = await readChoice(ctx, 'motivation', MOTIVATION_OPTIONS);
   if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await showTyping(ctx);
-  await pause(700);
   const finalData: ProfileData = { ...data, motivation: match.id };
   const completeness = computeCompleteness(finalData);
   const offers = matchVacancies(finalData);
@@ -380,8 +364,6 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
  * кнопка «Посмотреть предложения» на итоговом сообщении остаётся кликабельной и после перехода
  * к вводу ИНН, поэтому оба шага должны уметь её обработать. */
 async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
-  await showTyping(ctx);
-  await pause(600);
   const offers = matchVacancies(data);
   const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
   await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
@@ -419,7 +401,6 @@ const awaitInn: Step_ = async ({ ctx, data }) => {
   if (!inn || !isValidInnFormat(inn)) return sendService(ctx, data, VERIFY_INN_INVALID);
   await deleteServiceMessages(ctx, data);
   await sendText(ctx, VERIFY_PROCESSING);
-  await showTyping(ctx);
   await runDemoVerification();
   const { cityPromptId: _cityPromptId, serviceMessageIds: _serviceMessageIds, ...profile } = data;
   submitToLaborExchangeMock(ctx.chatId ?? 0, profile);
