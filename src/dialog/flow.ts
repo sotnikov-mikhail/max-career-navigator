@@ -49,12 +49,25 @@ async function sendChoice(ctx: BotContext, text: string, options: ChoiceOption[]
   await ctx.reply(text, { attachments: [choiceKeyboard(options)] });
 }
 
+/**
+ * Подтверждает нажатие кнопки (убирает спиннер загрузки у пользователя).
+ * MAX отклоняет пустое тело `{}` ошибкой 400 «message or notification required» —
+ * это поле не описано в типах SDK 0.3.1, поэтому приводим тип вручную.
+ * Обёрнуто в try/catch: подтверждение — не критично, обработка ответа не должна падать из-за него.
+ */
+async function acknowledgeCallback(ctx: BotContext): Promise<void> {
+  if (!ctx.has('message_callback')) return;
+  try {
+    await ctx.answerOnCallback({ notification: 'Принято' } as Parameters<BotContext['answerOnCallback']>[0]);
+  } catch (error) {
+    console.error('Не удалось подтвердить callback (не критично, продолжаем)', error);
+  }
+}
+
 /** Читает выбранный вариант из нажатия кнопки; подтверждает получение колбэка. */
 async function readChoice(ctx: BotContext, options: ChoiceOption[]): Promise<ChoiceOption | undefined> {
   const payload = ctx.callback?.payload;
-  if (ctx.has('message_callback')) {
-    await ctx.answerOnCallback({});
-  }
+  await acknowledgeCallback(ctx);
   return options.find((option) => option.id === payload);
 }
 
@@ -232,9 +245,7 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
 
 const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
-  if (ctx.has('message_callback')) {
-    await ctx.answerOnCallback({});
-  }
+  await acknowledgeCallback(ctx);
   if (payload === 'verify') {
     await ctx.reply(VERIFY_INN_PROMPT);
     return transition.goto('await_inn');

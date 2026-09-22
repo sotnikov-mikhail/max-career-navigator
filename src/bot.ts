@@ -38,8 +38,13 @@ bot.on('message_created', async (ctx) => {
   await ctx.reply(`Не совсем понял. ${RESTART_HINT}`);
 });
 
-bot.catch((err, ctx) => {
+bot.catch(async (err, ctx) => {
   console.error('Ошибка при обработке события', ctx.updateType, err);
+  try {
+    await ctx.reply('Что-то пошло не так. Попробуй ещё раз или напиши /start, чтобы начать заново.');
+  } catch (replyError) {
+    console.error('Не удалось отправить сообщение об ошибке пользователю', replyError);
+  }
 });
 
 await bot.start();
