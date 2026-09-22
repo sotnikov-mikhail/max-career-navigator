@@ -18,7 +18,7 @@ function stepHeader(step: number, emoji: string, title: string): string {
   return `${emoji} ${fmt.bold(`Шаг ${step} из ${TOTAL_STEPS}`)} — ${fmt.bold(title)}`;
 }
 
-/** Строка-цитата: визуально выделяет оговорки про демо-режим. */
+/** Строка-цитата: визуально выделяет оговорки про демо-режим и легенды к кнопкам. */
 function quote(text: string): string {
   return text
     .split('\n')
@@ -41,11 +41,16 @@ export const RESTART_HINT = 'Чтобы начать заново в любой 
 
 export const NAME_EMPTY_PROMPT = 'Имя не должно быть пустым. Как тебя зовут?';
 
+// Подписи на кнопках MAX обрезаются примерно после ~35-40 символов (кнопка
+// растягивается на всю ширину экрана, но текст всё равно центрируется и режется).
+// Поэтому подписи короткие, а пояснения и «приёмы влияния» из исходного сценария —
+// в тексте вопроса (там лимит 4000 символов, обрезания нет).
+
 export const STUDY_STAGE_OPTIONS: ChoiceOption[] = [
-  { id: 'college', label: '🏫 Учусь в колледже / техникуме' },
-  { id: 'uni_1_2', label: '📘 Учусь в вузе (1–2 курс)' },
-  { id: 'uni_3_4', label: '📗 Учусь в вузе (3–4 курс или магистратура)' },
-  { id: 'graduated', label: '🎓 Уже окончил(а) обучение' },
+  { id: 'college', label: '🏫 Колледж / техникум' },
+  { id: 'uni_1_2', label: '📘 Вуз, 1–2 курс' },
+  { id: 'uni_3_4', label: '📗 Вуз, 3–4 курс / магистр.' },
+  { id: 'graduated', label: '🎓 Уже окончил(а)' },
 ];
 
 export function studyStagePrompt(name: string): string {
@@ -66,12 +71,12 @@ export function cityPrompt(): string {
 export const CITY_EMPTY_PROMPT = 'Название города не должно быть пустым. В каком ты городе?';
 
 export const FIELD_OPTIONS: ChoiceOption[] = [
-  { id: 'it', label: '💻 IT и цифровые технологии' },
-  { id: 'engineering', label: '⚙️ Инженерия и производство' },
-  { id: 'economics', label: '📊 Экономика, управление и аналитика' },
-  { id: 'humanities', label: '📚 Гуманитарная, социальная или педагогическая' },
-  { id: 'service', label: '🤝 Сервис, логистика и работа с людьми' },
-  { id: 'undecided', label: '🔍 Пока не определился(ась) — хочу попробовать разное' },
+  { id: 'it', label: '💻 IT и цифра' },
+  { id: 'engineering', label: '⚙️ Инженерия' },
+  { id: 'economics', label: '📊 Экономика и аналитика' },
+  { id: 'humanities', label: '📚 Гуманитарная сфера' },
+  { id: 'service', label: '🤝 Сервис и логистика' },
+  { id: 'undecided', label: '🔍 Ещё не определился(ась)' },
 ];
 
 export function fieldPrompt(goal: Goal): string {
@@ -85,10 +90,10 @@ export function interestPrompt(): string {
 export const INTEREST_EMPTY_PROMPT = 'Напиши хотя бы пару слов о том, чем нравится заниматься.';
 
 export const EMPLOYMENT_OPTIONS: ChoiceOption[] = [
-  { id: 'free', label: '🆓 Свободен(на) и ищу первые проекты / стажировку' },
-  { id: 'study_10_20h', label: '⏱️ Учусь, но могу выделять 10–20 часов в неделю' },
-  { id: 'side_job', label: '🧩 Учусь и уже подрабатываю не по специальности' },
-  { id: 'working', label: '💼 Работаю по специальности, но ищу вариант получше' },
+  { id: 'free', label: '🆓 Свободен(на), ищу первое' },
+  { id: 'study_10_20h', label: '⏱️ 10–20 часов в неделю' },
+  { id: 'side_job', label: '🧩 Подрабатываю не по профилю' },
+  { id: 'working', label: '💼 Работаю, ищу вариант лучше' },
 ];
 
 export function employmentPrompt(): string {
@@ -96,54 +101,78 @@ export function employmentPrompt(): string {
 }
 
 export const EMPLOYMENT_FORMAL_OPTIONS: ChoiceOption[] = [
-  { id: 'formal', label: '✅ Да, оформлено официально' },
-  { id: 'informal', label: '⚪ Нет, подрабатываю неофициально' },
+  { id: 'formal', label: '✅ Да, официально' },
+  { id: 'informal', label: '⚪ Нет, неофициально' },
 ];
 
 export const EMPLOYMENT_FORMAL_PROMPT = `📝 ${fmt.bold('Уточнение к шагу 6')}\n\nА текущая занятость оформлена официально?`;
 
 export const SALARY_OPTIONS: ChoiceOption[] = [
-  { id: 'to_30k', label: '💵 До 30 000 ₽ / мес (отличный старт для гибкого графика и обучения)' },
-  { id: '30_50k', label: '💶 30 000 – 50 000 ₽ / мес (базовый уровень для регулярной partial-time работы)' },
-  { id: '50_80k', label: '💷 50 000 – 80 000 ₽ / мес (требует готовности к высокой загрузке и базе навыков)' },
-  { id: 'from_80k', label: '💰 От 80 000 ₽ / мес (доступно при полной занятости или наличии опыта/кейсов)' },
+  { id: 'to_30k', label: '💵 До 30 000 ₽/мес' },
+  { id: '30_50k', label: '💶 30 000–50 000 ₽/мес' },
+  { id: '50_80k', label: '💷 50 000–80 000 ₽/мес' },
+  { id: 'from_80k', label: '💰 От 80 000 ₽/мес' },
 ];
 
 export function salaryPrompt(goal: Goal): string {
+  const legend = quote(
+    '💵 До 30 000 ₽ — старт для гибкого графика и обучения\n' +
+      '💶 30 000–50 000 ₽ — базовый уровень для partial-time\n' +
+      '💷 50 000–80 000 ₽ — высокая загрузка и база навыков\n' +
+      '💰 От 80 000 ₽ — полная занятость или опыт/кейсы',
+  );
   return (
     `${stepHeader(7, '💰', 'Ожидания по зарплате')}\n\n` +
     `Какая стартовая планка по доходу для тебя комфортна на этапе входа/${GOAL_WORD[goal].gen}?\n` +
-    `Подсказка: работодатели ценят реальную оценку своего времени и готовность расти вместе с задачами.`
+    `Подсказка: работодатели ценят реальную оценку своего времени и готовность расти вместе с задачами.\n\n${legend}`
   );
 }
 
 export const WORK_FORMAT_OPTIONS: ChoiceOption[] = [
-  { id: 'remote', label: '🏠 Удалёнка (главное — интернет и результат)' },
-  { id: 'hybrid', label: '🔀 Гибрид (пара дней в офисе/на предприятии, остальное дома)' },
-  { id: 'onsite', label: '🏢 Очно (хочу видеть команду и погружаться на месте)' },
-  { id: 'project', label: '📌 Проектная работа / разовые задачи' },
+  { id: 'remote', label: '🏠 Удалёнка' },
+  { id: 'hybrid', label: '🔀 Гибрид' },
+  { id: 'onsite', label: '🏢 Очно' },
+  { id: 'project', label: '📌 Проектная работа' },
 ];
 
-export const WORK_FORMAT_PROMPT = `${stepHeader(8, '🏠', 'Формат работы')}\n\nКакой формат идеален для твоего текущего расписания?`;
+export const WORK_FORMAT_PROMPT =
+  `${stepHeader(8, '🏠', 'Формат работы')}\n\nКакой формат идеален для твоего текущего расписания?\n\n` +
+  quote(
+    '🏠 Удалёнка — интернет и результат\n' +
+      '🔀 Гибрид — пара дней в офисе, остальное дома\n' +
+      '🏢 Очно — команда и погружение на месте\n' +
+      '📌 Проектная работа — разовые задачи',
+  );
 
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
-  { id: 'ready_100', label: '🔥 Готов(а) выкладываться на 100%, если это оплачивается или двигает карьеру' },
-  { id: 'ready_sometimes', label: '⚖️ Готов(а) изредка подставить плечо команде, но ценю баланс' },
-  { id: 'strict_schedule', label: '📅 Строго по графику: учёба на первом месте' },
+  { id: 'ready_100', label: '🔥 Готов(а) на 100%' },
+  { id: 'ready_sometimes', label: '⚖️ Изредка, ценю баланс' },
+  { id: 'strict_schedule', label: '📅 Строго по графику' },
 ];
 
 export const OVERTIME_PROMPT =
-  `${stepHeader(9, '🔥', 'Переработки')}\n\nПроекты бывает нужно сдавать в дедлайны. Как ты относишься к временному усилению нагрузки или овертаймам?`;
+  `${stepHeader(9, '🔥', 'Переработки')}\n\nПроекты бывает нужно сдавать в дедлайны. Как ты относишься к временному усилению нагрузки или овертаймам?\n\n` +
+  quote(
+    '🔥 На 100% — если оплачивается или двигает карьеру\n' +
+      '⚖️ Изредка — но ценю баланс\n' +
+      '📅 Строго по графику — учёба на первом месте',
+  );
 
 export const MOTIVATION_OPTIONS: ChoiceOption[] = [
-  { id: 'growth', label: '🚀 Быстрый карьерный рост и менторство' },
-  { id: 'flexible_schedule', label: '🕊️ Гибкий график без ущерба учёбе' },
-  { id: 'official_record', label: '🏛️ Официальный стаж и запись в резюме для государства / госструктур' },
-  { id: 'pay_now', label: '💸 Хорошая оплата прямо сейчас' },
+  { id: 'growth', label: '🚀 Рост и менторство' },
+  { id: 'flexible_schedule', label: '🕊️ Гибкий график' },
+  { id: 'official_record', label: '🏛️ Официальный стаж' },
+  { id: 'pay_now', label: '💸 Оплата сейчас' },
 ];
 
 export function motivationPrompt(goal: Goal): string {
-  return `${stepHeader(10, '🚀', 'Мотивация')}\n\nЧто для тебя сейчас станет главным «триггером», чтобы сказать работодателю «ДА» на ${GOAL_WORD[goal].acc}?`;
+  const legend = quote(
+    '🚀 Рост и менторство\n' +
+      '🕊️ Гибкий график без ущерба учёбе\n' +
+      '🏛️ Официальный стаж — запись в резюме для государства / госструктур\n' +
+      '💸 Хорошая оплата прямо сейчас',
+  );
+  return `${stepHeader(10, '🚀', 'Мотивация')}\n\nЧто для тебя сейчас станет главным «триггером», чтобы сказать работодателю «ДА» на ${GOAL_WORD[goal].acc}?\n\n${legend}`;
 }
 
 export function invalidChoicePrompt(): string {
@@ -162,8 +191,8 @@ export function finalSummary(profileCompletePercent: number, offersCount: number
   );
 }
 
-export const FINAL_BUTTON_VERIFY = '🪪 Пройти верификацию (демо)';
-export const FINAL_BUTTON_OFFERS = '📋 Посмотреть доступные предложения';
+export const FINAL_BUTTON_VERIFY = '🪪 Верификация (демо)';
+export const FINAL_BUTTON_OFFERS = '📋 Доступные предложения';
 
 export const VERIFY_INN_PROMPT =
   `🪪 ${fmt.bold('Демо-верификация')}\n\n` +
