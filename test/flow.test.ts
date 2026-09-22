@@ -42,6 +42,12 @@ async function runStep(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions
   return { transitionResult, replies, ctx };
 }
 
+async function runIntercept(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
+  const { ctx, replies } = fakeCtx(ctxOptions);
+  const transitionResult = await careerScenario.intercept?.({ ctx, state: fakeState(step), data });
+  return { transitionResult, replies, ctx };
+}
+
 test('await_name: пустое имя переспрашивает (stay)', async () => {
   const { transitionResult } = await runStep('await_name', {}, { text: '   ' });
   assert.equal(transitionResult.type, 'stay');
@@ -75,6 +81,28 @@ test('await_employment: "свободен" пропускает вопрос о�
   const { transitionResult } = await runStep('await_employment', { goal: 'internship' }, { callbackPayload: 'free' });
   assert.equal(transitionResult.type, 'goto');
   assert.equal((transitionResult as { step: Step }).step, 'await_salary');
+});
+
+test('intercept: клик по кнопке текущего вопроса пропускается дальше (undefined)', async () => {
+  const { transitionResult } = await runIntercept('await_goal', { studyStage: 'uni_3_4' }, { callbackPayload: 'job' });
+  assert.equal(transitionResult, undefined);
+});
+
+test('intercept: клик по кнопке уже отвеченного блока обновляет поле и остаётся на месте', async () => {
+  const { transitionResult, replies } = await runIntercept(
+    'await_salary',
+    { studyStage: 'uni_3_4', goal: 'job' },
+    { callbackPayload: 'internship' },
+  );
+  assert.ok(transitionResult);
+  assert.equal(transitionResult!.type, 'stay');
+  assert.deepEqual((transitionResult as { data?: Partial<ProfileData> }).data, { goal: 'internship' });
+  assert.ok(replies[0].includes('Цель'));
+});
+
+test('intercept: посторонний payload (например action-кнопки verify/offers) не перехватывается', async () => {
+  const { transitionResult } = await runIntercept('await_final_action', {}, { callbackPayload: 'verify' });
+  assert.equal(transitionResult, undefined);
 });
 
 test('await_final_action: verify ведёт к запросу ИНН, offers остаётся на месте', async () => {

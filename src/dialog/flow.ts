@@ -278,6 +278,49 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   return transition.stay();
 };
 
+/** Реестр всех закрытых вопросов сценария — нужен, чтобы распознать клик по кнопке
+ * из уже пройденного блока (пользователь передумал и хочет исправить старый ответ). */
+interface ChoiceFieldConfig {
+  field: keyof ProfileData;
+  title: string;
+  options: ChoiceOption[];
+}
+
+const CHOICE_FIELDS: ChoiceFieldConfig[] = [
+  { field: 'studyStage', title: 'Этап обучения', options: STUDY_STAGE_OPTIONS },
+  { field: 'goal', title: 'Цель', options: GOAL_OPTIONS },
+  { field: 'field', title: 'Сфера', options: FIELD_OPTIONS },
+  { field: 'employment', title: 'Занятость', options: EMPLOYMENT_OPTIONS },
+  { field: 'employmentFormal', title: 'Официальность занятости', options: EMPLOYMENT_FORMAL_OPTIONS },
+  { field: 'salary', title: 'Ожидания по зарплате', options: SALARY_OPTIONS },
+  { field: 'workFormat', title: 'Формат работы', options: WORK_FORMAT_OPTIONS },
+  { field: 'overtime', title: 'Переработки', options: OVERTIME_OPTIONS },
+  { field: 'motivation', title: 'Мотивация', options: MOTIVATION_OPTIONS },
+];
+
+/** Какое поле профиля ожидает текущий шаг — чтобы отличить «это ответ на текущий вопрос»
+ * от «это клик по кнопке из старого блока». */
+const STEP_FIELD: Partial<Record<Step, keyof ProfileData>> = {
+  await_study_stage: 'studyStage',
+  await_goal: 'goal',
+  await_field: 'field',
+  await_employment: 'employment',
+  await_employment_formal: 'employmentFormal',
+  await_salary: 'salary',
+  await_work_format: 'workFormat',
+  await_overtime: 'overtime',
+  await_motivation: 'motivation',
+};
+
+function findChoiceField(payload: string | undefined): { config: ChoiceFieldConfig; option: ChoiceOption } | undefined {
+  if (!payload) return undefined;
+  for (const config of CHOICE_FIELDS) {
+    const option = config.options.find((o) => o.id === payload);
+    if (option) return { config, option };
+  }
+  return undefined;
+}
+
 const awaitInn: Step_ = async ({ ctx, data }) => {
   // Кнопка «Посмотреть предложения» на итоговом сообщении не исчезает — если пользователь
   // передумал и нажал её вместо ввода ИНН, показываем предложения и остаёмся на этом шаге,
@@ -310,6 +353,21 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   initialStep: 'greet',
   idleTimeoutMs: 30 * 60 * 1000,
   createData: () => ({}),
+  /**
+   * Срабатывает перед каждым шагом. Если нажата кнопка из уже отвеченного блока выше
+   * по чату (не текущего вопроса) — обновляем это поле и остаёмся на текущем шаге,
+   * вместо непонятного «выбери один из вариантов кнопкой ниже» (кнопки старых
+   * сообщений в MAX остаются кликабельными и после того, как чат ушёл вперёд).
+   */
+  intercept: async ({ ctx, state, data }) => {
+    if (!ctx.has('message_callback')) return undefined;
+    const match = findChoiceField(ctx.callback?.payload);
+    if (!match) return undefined;
+    if (match.config.field === STEP_FIELD[state.step]) return undefined;
+    await acknowledgeCallback(ctx);
+    await sendText(ctx, `✏️ Обновил «${match.config.title}»: ${match.option.label}`);
+    return transition.stay({ [match.config.field]: match.option.id } as Partial<ProfileData>);
+  },
   steps: {
     greet,
     await_name: awaitName,
