@@ -11,9 +11,9 @@ export const GOAL_WORD: Record<Goal, { nom: string; gen: string; acc: string }> 
   job: { nom: 'работа', gen: 'работы', acc: 'работу' },
 };
 
-const TOTAL_STEPS = 10;
+const TOTAL_STEPS = 11;
 
-/** Заголовок вопроса с эмодзи и индикатором прогресса, например «🎓 Шаг 1 из 10». */
+/** Заголовок вопроса с эмодзи и индикатором прогресса, например «🎓 Шаг 1 из 11». */
 function stepHeader(step: number, emoji: string, title: string): string {
   return `${emoji} ${fmt.bold(`Шаг ${step} из ${TOTAL_STEPS}`)} — ${fmt.bold(title)}`;
 }
@@ -100,11 +100,30 @@ export function fieldPrompt(goal: Goal): string {
   return `${stepHeader(4, '💼', 'Сфера')}\n\nСупер. Какая сфера тебе ближе всего для ${GOAL_WORD[goal].gen}? (Профиль всегда можно будет дополнить)`;
 }
 
-export function interestPrompt(): string {
-  return `${stepHeader(5, '✨', 'Интересы')}\n\nА чем конкретно тебе нравится заниматься? Коротко, в свободной форме (например: «собирать сайты», «работать с людьми», «считать бюджеты»).`;
+// Опыт и оплата — единственные вопросы, где ветки «стажировка» и «работа» расходятся.
+// id вариантов уникальны во всём сценарии: по payload кнопки определяется, к какому вопросу она относится.
+
+export const INTERNSHIP_EXPERIENCE_OPTIONS: ChoiceOption[] = [
+  { id: 'exp_yes', label: '✅ Да, есть' },
+  { id: 'exp_no', label: '🌱 Пока нет' },
+];
+
+export const JOB_EXPERIENCE_OPTIONS: ChoiceOption[] = [
+  { id: 'exp_0_1', label: '🌱 0–1 год' },
+  { id: 'exp_2_3', label: '📈 2–3 года' },
+  { id: 'exp_4_5', label: '💪 4–5 лет' },
+  { id: 'exp_5p', label: '🏆 Больше 5 лет' },
+];
+
+export function experienceOptions(goal: Goal): ChoiceOption[] {
+  return goal === 'internship' ? INTERNSHIP_EXPERIENCE_OPTIONS : JOB_EXPERIENCE_OPTIONS;
 }
 
-export const INTEREST_EMPTY_PROMPT = 'Напиши хотя бы пару слов о том, чем нравится заниматься.';
+export function experiencePrompt(goal: Goal): string {
+  const question =
+    goal === 'internship' ? 'Есть ли у тебя уже опыт работы или стажировок?' : 'Сколько у тебя опыта работы?';
+  return `${stepHeader(5, '🧭', 'Опыт')}\n\n${question}`;
+}
 
 export const EMPLOYMENT_OPTIONS: ChoiceOption[] = [
   { id: 'free', label: '🆓 Свободен(на), ищу первое' },
@@ -117,31 +136,57 @@ export function employmentPrompt(): string {
   return `${stepHeader(6, '⏰', 'Занятость')}\n\nПонял! Большинство студентов начинают совмещать практику с учёбой уже с первых курсов. А как у тебя сейчас с занятостью?`;
 }
 
-export const EMPLOYMENT_FORMAL_OPTIONS: ChoiceOption[] = [
-  { id: 'formal', label: '✅ Да, официально' },
-  { id: 'informal', label: '⚪ Нет, неофициально' },
+export const INTERNSHIP_PAY_OPTIONS: ChoiceOption[] = [
+  { id: 'intern_paid', label: '💰 Только оплачиваемая' },
+  { id: 'intern_unpaid', label: '🤝 Можно и без оплаты' },
 ];
 
-export const EMPLOYMENT_FORMAL_PROMPT = `📝 ${fmt.bold('Уточнение к шагу 6')}\n\nА текущая занятость оформлена официально?`;
-
-export const SALARY_OPTIONS: ChoiceOption[] = [
-  { id: 'to_30k', label: '💵 До 30 000 ₽/мес' },
-  { id: '30_50k', label: '💶 30 000–50 000 ₽/мес' },
-  { id: '50_80k', label: '💷 50 000–80 000 ₽/мес' },
-  { id: 'from_80k', label: '💰 От 80 000 ₽/мес' },
+// Порядок важен: индекс вилки сравнивается с индексом опыта в isSalaryInflated.
+export const JOB_SALARY_OPTIONS: ChoiceOption[] = [
+  { id: 'sal_30_50', label: '💵 30–50 тыс. ₽' },
+  { id: 'sal_50_80', label: '💶 50–80 тыс. ₽' },
+  { id: 'sal_80_150', label: '💷 80–150 тыс. ₽' },
+  { id: 'sal_150_300', label: '💰 150–300 тыс. ₽' },
+  { id: 'sal_300p', label: '💎 От 300 тыс. ₽' },
 ];
+
+export function salaryOptions(goal: Goal): ChoiceOption[] {
+  return goal === 'internship' ? INTERNSHIP_PAY_OPTIONS : JOB_SALARY_OPTIONS;
+}
 
 export function salaryPrompt(goal: Goal): string {
-  const legend = quote(
-    '💵 До 30 000 ₽ — старт для гибкого графика и обучения\n' +
-      '💶 30 000–50 000 ₽ — базовый уровень для partial-time\n' +
-      '💷 50 000–80 000 ₽ — высокая загрузка и база навыков\n' +
-      '💰 От 80 000 ₽ — полная занятость или опыт/кейсы',
-  );
+  if (goal === 'internship') {
+    return `${stepHeader(7, '💰', 'Оплата')}\n\nРассматриваешь только оплачиваемую стажировку?`;
+  }
   return (
     `${stepHeader(7, '💰', 'Ожидания по зарплате')}\n\n` +
-    `Какая стартовая планка по доходу для тебя комфортна на этапе входа/${GOAL_WORD[goal].gen}?\n` +
-    `Подсказка: работодатели ценят реальную оценку своего времени и готовность расти вместе с задачами.\n\n${legend}`
+    'На какой доход в месяц рассчитываешь?\n' +
+    'Подсказка: работодатели ценят реальную оценку своего времени и готовность расти вместе с задачами.'
+  );
+}
+
+/**
+ * Проверка «опыт + оплата» (только для работы): ожидания считаются завышенными, если
+ * вилка больше чем на ступень выше опыта (0–1 год → до 50–80, 2–3 → до 80–150,
+ * 4–5 → до 150–300, 5+ → любая). Пороги — экспертное допущение, не рыночная статистика.
+ */
+export function isSalaryInflated(experience: string | undefined, salary: string | undefined): boolean {
+  const e = JOB_EXPERIENCE_OPTIONS.findIndex((o) => o.id === experience);
+  const s = JOB_SALARY_OPTIONS.findIndex((o) => o.id === salary);
+  if (e < 0 || s < 0) return false;
+  return s > e + 1;
+}
+
+export const SALARY_REVISION_OPTIONS: ChoiceOption[] = [
+  { id: 'rev_yes', label: '✅ Да, готов(а)' },
+  { id: 'rev_no', label: '❌ Нет' },
+];
+
+export function salaryRevisionPrompt(experienceLabel: string, salaryLabel: string): string {
+  return (
+    `📝 ${fmt.bold('Последний вопрос')}\n\n` +
+    `При опыте «${experienceLabel}» ожидания «${salaryLabel}» выше, чем обычно предлагают на старте. ` +
+    'Готов(а) пересмотреть ожидания по зарплате, если предложение будет интересным?'
   );
 }
 
@@ -161,6 +206,13 @@ export const WORK_FORMAT_PROMPT =
       '📌 Проектная работа — разовые задачи',
   );
 
+export const RELOCATION_OPTIONS: ChoiceOption[] = [
+  { id: 'reloc_yes', label: '✈️ Готов(а)' },
+  { id: 'reloc_no', label: '🏠 Не готов(а)' },
+];
+
+export const RELOCATION_PROMPT = `${stepHeader(9, '✈️', 'Переезд')}\n\nГотов(а) к переезду, если найдётся подходящее предложение в другом городе?`;
+
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
   { id: 'ready_100', label: '🔥 Готов(а) на 100%' },
   { id: 'ready_sometimes', label: '⚖️ Изредка, ценю баланс' },
@@ -168,7 +220,7 @@ export const OVERTIME_OPTIONS: ChoiceOption[] = [
 ];
 
 export const OVERTIME_PROMPT =
-  `${stepHeader(9, '🔥', 'Переработки')}\n\nПроекты бывает нужно сдавать в дедлайны. Как ты относишься к временному усилению нагрузки или овертаймам?\n\n` +
+  `${stepHeader(10, '🔥', 'Переработки')}\n\nПроекты бывает нужно сдавать в дедлайны. Как ты относишься к временному усилению нагрузки или овертаймам?\n\n` +
   quote(
     '🔥 На 100% — если оплачивается или двигает карьеру\n' +
       '⚖️ Изредка — но ценю баланс\n' +
@@ -189,7 +241,7 @@ export function motivationPrompt(goal: Goal): string {
       '🏛️ Официальный стаж — запись в резюме для государства / госструктур\n' +
       '💸 Хорошая оплата прямо сейчас',
   );
-  return `${stepHeader(10, '🚀', 'Мотивация')}\n\nЧто для тебя сейчас станет главным «триггером», чтобы сказать работодателю «ДА» на ${GOAL_WORD[goal].acc}?\n\n${legend}`;
+  return `${stepHeader(11, '🚀', 'Мотивация')}\n\nЧто для тебя сейчас станет главным «триггером», чтобы сказать работодателю «ДА» на ${GOAL_WORD[goal].acc}?\n\n${legend}`;
 }
 
 export function invalidChoicePrompt(): string {

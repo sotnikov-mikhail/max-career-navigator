@@ -6,6 +6,7 @@ import type { BotContext, ProfileData, Step } from '../src/dialog/types.js';
 import { isValidInnFormat } from '../src/services/verification.js';
 import { matchVacancies } from '../src/services/matching.js';
 import { nearestCity } from '../src/services/geo.js';
+import { isSalaryInflated } from '../src/dialog/script.js';
 
 interface FakeCtxOptions {
   text?: string;
@@ -106,16 +107,70 @@ test('await_study_stage: валидный ответ схлопывает воп
   assert.ok(edits[0].includes('Вуз, 3–4 курс'));
 });
 
-test('await_employment: подработка ведёт к вопросу об официальности', async () => {
-  const { transitionResult } = await runStep('await_employment', { goal: 'job' }, { callbackPayload: 'side_job' });
-  assert.equal(transitionResult.type, 'goto');
-  assert.equal((transitionResult as { step: Step }).step, 'await_employment_formal');
+test('ветки: вопрос об опыте — да/нет для стажировки, годы для работы', async () => {
+  const internship = await runStep('await_field', { goal: 'internship' }, { callbackPayload: 'it' });
+  assert.equal((internship.transitionResult as { step: Step }).step, 'await_experience');
+  assert.ok(internship.replies[0].includes('Есть ли у тебя уже опыт'));
+
+  const job = await runStep('await_field', { goal: 'job' }, { callbackPayload: 'it' });
+  assert.ok(job.replies[0].includes('Сколько у тебя опыта'));
 });
 
-test('await_employment: "свободен" пропускает вопрос об официальности и идёт сразу к зарплате', async () => {
-  const { transitionResult } = await runStep('await_employment', { goal: 'internship' }, { callbackPayload: 'free' });
-  assert.equal(transitionResult.type, 'goto');
-  assert.equal((transitionResult as { step: Step }).step, 'await_salary');
+test('ветки: ответ из чужой ветки не принимается', async () => {
+  const { transitionResult } = await runStep('await_experience', { goal: 'internship' }, { callbackPayload: 'exp_2_3' });
+  assert.equal(transitionResult.type, 'stay');
+});
+
+test('ветки: оплата — оплачиваемая/нет для стажировки, вилка для работы', async () => {
+  const internship = await runStep('await_salary', { goal: 'internship' }, { callbackPayload: 'intern_unpaid' });
+  assert.deepEqual(transitionData(internship.transitionResult), { salary: 'intern_unpaid' });
+
+  const job = await runStep('await_salary', { goal: 'job' }, { callbackPayload: 'sal_80_150' });
+  assert.deepEqual(transitionData(job.transitionResult), { salary: 'sal_80_150' });
+});
+
+test('порядок: занятость → оплата, формат → переезд → переработки', async () => {
+  const employment = await runStep('await_employment', { goal: 'job' }, { callbackPayload: 'free' });
+  assert.equal((employment.transitionResult as { step: Step }).step, 'await_salary');
+  const format = await runStep('await_work_format', { goal: 'job' }, { callbackPayload: 'remote' });
+  assert.equal((format.transitionResult as { step: Step }).step, 'await_relocation');
+  const relocation = await runStep('await_relocation', { goal: 'job' }, { callbackPayload: 'reloc_yes' });
+  assert.equal((relocation.transitionResult as { step: Step }).step, 'await_overtime');
+});
+
+test('проверка ЗП: работа, мало опыта и завышенные ожидания → вопрос о пересмотре', async () => {
+  const { transitionResult, replies } = await runStep(
+    'await_motivation',
+    { goal: 'job', experience: 'exp_0_1', salary: 'sal_150_300' },
+    { callbackPayload: 'growth' },
+  );
+  assert.equal((transitionResult as { step: Step }).step, 'await_salary_revision');
+  assert.ok(replies[0].includes('0–1 год'));
+  assert.ok(replies[0].includes('150–300'));
+});
+
+test('проверка ЗП: адекватные ожидания и стажировка — сразу итог', async () => {
+  const job = await runStep('await_motivation', { goal: 'job', experience: 'exp_4_5', salary: 'sal_150_300' }, { callbackPayload: 'growth' });
+  assert.equal((job.transitionResult as { step: Step }).step, 'await_final_action');
+
+  const internship = await runStep('await_motivation', { goal: 'internship', experience: 'exp_no', salary: 'intern_paid' }, { callbackPayload: 'growth' });
+  assert.equal((internship.transitionResult as { step: Step }).step, 'await_final_action');
+});
+
+test('проверка ЗП: ответ на вопрос о пересмотре сохраняется и ведёт к итогу', async () => {
+  const { transitionResult } = await runStep('await_salary_revision', { goal: 'job' }, { callbackPayload: 'rev_yes' });
+  assert.equal((transitionResult as { step: Step }).step, 'await_final_action');
+  assert.deepEqual(transitionData(transitionResult), { salaryRevision: 'rev_yes' });
+});
+
+test('isSalaryInflated: пороги по опыту', () => {
+  assert.equal(isSalaryInflated('exp_0_1', 'sal_50_80'), false);
+  assert.equal(isSalaryInflated('exp_0_1', 'sal_80_150'), true);
+  assert.equal(isSalaryInflated('exp_2_3', 'sal_80_150'), false);
+  assert.equal(isSalaryInflated('exp_2_3', 'sal_150_300'), true);
+  assert.equal(isSalaryInflated('exp_4_5', 'sal_300p'), true);
+  assert.equal(isSalaryInflated('exp_5p', 'sal_300p'), false);
+  assert.equal(isSalaryInflated('exp_yes', 'intern_paid'), false);
 });
 
 test('intercept: клик по кнопке текущего вопроса пропускается дальше (undefined)', async () => {
@@ -125,15 +180,34 @@ test('intercept: клик по кнопке текущего вопроса пр
 
 test('intercept: клик по кнопке уже отвеченного блока обновляет поле и схлопывает вопрос', async () => {
   const { transitionResult, edits } = await runIntercept(
-    'await_salary',
-    { studyStage: 'uni_3_4', goal: 'job' },
+    'await_work_format',
+    { studyStage: 'uni_3_4', goal: 'job', field: 'it' },
+    { callbackPayload: 'economics' },
+  );
+  assert.equal(transitionResult!.type, 'stay');
+  assert.deepEqual(transitionData(transitionResult), { field: 'economics' });
+  assert.equal(edits.length, 1);
+  assert.ok(edits[0].includes('Сфера'));
+});
+
+test('intercept: смена цели сбрасывает опыт и оплату и переспрашивает их с вариантами новой ветки', async () => {
+  const { transitionResult, replies } = await runIntercept(
+    'await_work_format',
+    { goal: 'job', experience: 'exp_2_3', salary: 'sal_80_150' },
     { callbackPayload: 'internship' },
   );
-  assert.ok(transitionResult);
-  assert.equal(transitionResult!.type, 'stay');
-  assert.deepEqual((transitionResult as { data?: Partial<ProfileData> }).data, { goal: 'internship' });
-  assert.equal(edits.length, 1);
-  assert.ok(edits[0].includes('Цель'));
+  const data = transitionData(transitionResult)!;
+  assert.equal(data.goal, 'internship');
+  assert.ok('experience' in data && data.experience === undefined);
+  assert.ok('salary' in data && data.salary === undefined);
+  assert.equal(replies.length, 2);
+  assert.ok(replies[0].includes('Опыт'));
+  assert.ok(replies[1].includes('Оплата'));
+});
+
+test('intercept: старая кнопка опыта от другой ветки не применяется', async () => {
+  const { transitionResult } = await runIntercept('await_work_format', { goal: 'internship' }, { callbackPayload: 'exp_2_3' });
+  assert.equal(transitionResult, undefined);
 });
 
 test('intercept: посторонний payload (например action-кнопки verify/offers) не перехватывается', async () => {
