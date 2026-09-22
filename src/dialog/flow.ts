@@ -15,7 +15,7 @@ import {
   CITY_EMPTY_PROMPT,
   FIELD_OPTIONS,
   fieldPrompt,
-  INTEREST_PROMPT,
+  interestPrompt,
   INTEREST_EMPTY_PROMPT,
   EMPLOYMENT_OPTIONS,
   employmentPrompt,
@@ -44,9 +44,14 @@ import {
 
 type Step_ = ScenarioStep<BotContext, ProfileData, Step>;
 
+/** Отправляет текст с markdown-разметкой (жирные заголовки шагов, эмодзи). */
+async function sendText(ctx: BotContext, text: string): Promise<void> {
+  await ctx.reply(text, { format: 'markdown' });
+}
+
 /** Отправляет вопрос с кнопками-вариантами (закрытый вопрос, как в обоих черновиках сценария). */
 async function sendChoice(ctx: BotContext, text: string, options: ChoiceOption[]): Promise<void> {
-  await ctx.reply(text, { attachments: [choiceKeyboard(options)] });
+  await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboard(options)] });
 }
 
 /**
@@ -99,7 +104,7 @@ function computeCompleteness(data: ProfileData): number {
 
 /** Шаг запуска сценария: приветствие + запрос имени (объединение обоих черновиков). */
 const greet: Step_ = async ({ ctx }) => {
-  await ctx.reply(GREETING);
+  await sendText(ctx, GREETING);
   return transition.goto('await_name');
 };
 
@@ -129,7 +134,7 @@ const awaitGoal: Step_ = async ({ ctx }) => {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
   }
-  await ctx.reply(cityPrompt());
+  await sendText(ctx, cityPrompt());
   return transition.goto('await_city', { goal: match.id as Goal });
 };
 
@@ -150,7 +155,7 @@ const awaitField: Step_ = async ({ ctx }) => {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
   }
-  await ctx.reply(INTEREST_PROMPT);
+  await sendText(ctx, interestPrompt());
   return transition.goto('await_interest', { field: match.id });
 };
 
@@ -233,6 +238,7 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const completeness = computeCompleteness(finalData);
   const offers = matchVacancies(finalData);
   await ctx.reply(finalSummary(completeness, offers.length), {
+    format: 'markdown',
     attachments: [
       actionsKeyboard([
         { label: FINAL_BUTTON_VERIFY, payload: 'verify' },
@@ -247,13 +253,13 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   await acknowledgeCallback(ctx);
   if (payload === 'verify') {
-    await ctx.reply(VERIFY_INN_PROMPT);
+    await sendText(ctx, VERIFY_INN_PROMPT);
     return transition.goto('await_inn');
   }
   if (payload === 'offers') {
     const offers = matchVacancies(data);
     const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
-    await ctx.reply(lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
+    await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
     return transition.stay();
   }
   return transition.stay();
@@ -265,11 +271,11 @@ const awaitInn: Step_ = async ({ ctx, data }) => {
     await ctx.reply(VERIFY_INN_INVALID);
     return transition.stay();
   }
-  await ctx.reply(VERIFY_PROCESSING);
+  await sendText(ctx, VERIFY_PROCESSING);
   await runDemoVerification();
   const chatId = ctx.chatId ?? 0;
   submitToLaborExchangeMock(chatId, data);
-  await ctx.reply(verifySuccess());
+  await sendText(ctx, verifySuccess());
   return transition.complete();
 };
 
