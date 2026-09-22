@@ -87,6 +87,22 @@ test('await_final_action: verify ведёт к запросу ИНН, offers о�
   assert.ok(offers.replies[0].length > 0);
 });
 
+test('await_inn: клик "Посмотреть предложения" со старой клавиатуры не ломается на "невалидный ИНН"', async () => {
+  const { transitionResult, replies } = await runStep(
+    'await_inn',
+    { field: 'it', goal: 'internship' },
+    { callbackPayload: 'offers' },
+  );
+  assert.equal(transitionResult.type, 'stay');
+  assert.ok(!replies.some((text) => text.includes('ИНН')));
+});
+
+test('await_inn: обычный текст не похожий на ИНН всё ещё отклоняется', async () => {
+  const { transitionResult, replies } = await runStep('await_inn', {}, { text: 'не число' });
+  assert.equal(transitionResult.type, 'stay');
+  assert.ok(replies.some((text) => text.includes('ИНН')));
+});
+
 test('isValidInnFormat: принимает 10 и 12 цифр, отклоняет остальное', () => {
   assert.equal(isValidInnFormat('1234567890'), true);
   assert.equal(isValidInnFormat('123456789012'), true);

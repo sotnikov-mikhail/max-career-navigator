@@ -6,6 +6,11 @@ export function choiceKeyboard(options: ChoiceOption[]) {
   return Keyboard.inlineKeyboard(options.map((option) => [Keyboard.button.callback(option.label, option.id)]));
 }
 
+/** Короткие бинарные варианты — в один ряд, кнопки растянутся на всю ширину поровну. */
+export function choiceKeyboardRow(options: ChoiceOption[]) {
+  return Keyboard.inlineKeyboard([options.map((option) => Keyboard.button.callback(option.label, option.id))]);
+}
+
 export function actionsKeyboard(actions: Array<{ label: string; payload: string }>) {
   return Keyboard.inlineKeyboard(actions.map((action) => [Keyboard.button.callback(action.label, action.payload)]));
 }

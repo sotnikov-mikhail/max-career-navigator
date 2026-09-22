@@ -1,5 +1,5 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
-import { choiceKeyboard, actionsKeyboard } from '../keyboards.js';
+import { choiceKeyboard, choiceKeyboardRow, actionsKeyboard } from '../keyboards.js';
 import { matchVacancies, type Vacancy } from '../services/matching.js';
 import { isValidInnFormat, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
@@ -54,6 +54,11 @@ async function sendChoice(ctx: BotContext, text: string, options: ChoiceOption[]
   await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboard(options)] });
 }
 
+/** То же самое, но короткие варианты (2 варианта) идут в один ряд — компактнее для бинарного выбора. */
+async function sendChoiceRow(ctx: BotContext, text: string, options: ChoiceOption[]): Promise<void> {
+  await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboardRow(options)] });
+}
+
 /**
  * Подтверждает нажатие кнопки (убирает спиннер загрузки у пользователя).
  * MAX отклоняет пустое тело `{}` ошибкой 400 «message or notification required» —
@@ -63,7 +68,8 @@ async function sendChoice(ctx: BotContext, text: string, options: ChoiceOption[]
 async function acknowledgeCallback(ctx: BotContext): Promise<void> {
   if (!ctx.has('message_callback')) return;
   try {
-    await ctx.answerOnCallback({ notification: 'Принято' } as Parameters<BotContext['answerOnCallback']>[0]);
+    // Пустая строка убирает спиннер без видимой всплывающей плашки для пользователя.
+    await ctx.answerOnCallback({ notification: '' } as Parameters<BotContext['answerOnCallback']>[0]);
   } catch (error) {
     console.error('Не удалось подтвердить callback (не критично, продолжаем)', error);
   }
@@ -124,7 +130,7 @@ const awaitStudyStage: Step_ = async ({ ctx }) => {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
   }
-  await sendChoice(ctx, GOAL_PROMPT, GOAL_OPTIONS);
+  await sendChoiceRow(ctx, GOAL_PROMPT, GOAL_OPTIONS);
   return transition.goto('await_goal', { studyStage: match.id });
 };
 
@@ -249,6 +255,15 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
   return transition.goto('await_final_action', { motivation: match.id });
 };
 
+/** Показывает подобранные демо-предложения. Переиспользуется на шагах финала и ожидания ИНН —
+ * кнопка «Посмотреть предложения» на итоговом сообщении остаётся кликабельной и после перехода
+ * к вводу ИНН, поэтому оба шага должны уметь её обработать. */
+async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
+  const offers = matchVacancies(data);
+  const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
+  await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
+}
+
 const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   await acknowledgeCallback(ctx);
@@ -257,15 +272,26 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
     return transition.goto('await_inn');
   }
   if (payload === 'offers') {
-    const offers = matchVacancies(data);
-    const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
-    await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
+    await sendOffers(ctx, data);
     return transition.stay();
   }
   return transition.stay();
 };
 
 const awaitInn: Step_ = async ({ ctx, data }) => {
+  // Кнопка «Посмотреть предложения» на итоговом сообщении не исчезает — если пользователь
+  // передумал и нажал её вместо ввода ИНН, показываем предложения и остаёмся на этом шаге,
+  // а не ругаемся на «невалидный ИНН» (это и была причина бага).
+  if (ctx.has('message_callback')) {
+    const payload = ctx.callback?.payload;
+    await acknowledgeCallback(ctx);
+    if (payload === 'offers') {
+      await sendOffers(ctx, data);
+    } else {
+      await sendText(ctx, VERIFY_INN_PROMPT);
+    }
+    return transition.stay();
+  }
   const inn = readText(ctx);
   if (!inn || !isValidInnFormat(inn)) {
     await ctx.reply(VERIFY_INN_INVALID);
