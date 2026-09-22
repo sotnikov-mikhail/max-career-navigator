@@ -13,6 +13,7 @@ interface FakeCtxOptions {
 
 function fakeCtx(options: FakeCtxOptions = {}) {
   const replies: string[] = [];
+  const edits: string[] = [];
   const answeredCallbacks: number[] = [];
   const ctx = {
     message: options.text !== undefined ? { body: { text: options.text } } : undefined,
@@ -23,12 +24,16 @@ function fakeCtx(options: FakeCtxOptions = {}) {
       replies.push(text);
       return {} as never;
     },
+    editMessage: async (extra: { text?: string | null }) => {
+      edits.push(extra.text ?? '');
+      return {} as never;
+    },
     answerOnCallback: async () => {
       answeredCallbacks.push(1);
       return {} as never;
     },
   };
-  return { ctx: ctx as unknown as BotContext, replies, answeredCallbacks };
+  return { ctx: ctx as unknown as BotContext, replies, edits, answeredCallbacks };
 }
 
 function fakeState(step: Step): ScenarioState<ProfileData, Step> {
@@ -36,16 +41,16 @@ function fakeState(step: Step): ScenarioState<ProfileData, Step> {
 }
 
 async function runStep(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies } = fakeCtx(ctxOptions);
+  const { ctx, replies, edits } = fakeCtx(ctxOptions);
   const stepFn = careerScenario.steps[step];
   const transitionResult = await stepFn({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, ctx };
+  return { transitionResult, replies, edits, ctx };
 }
 
 async function runIntercept(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies } = fakeCtx(ctxOptions);
+  const { ctx, replies, edits } = fakeCtx(ctxOptions);
   const transitionResult = await careerScenario.intercept?.({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, ctx };
+  return { transitionResult, replies, edits, ctx };
 }
 
 test('await_name: пустое имя переспрашивает (stay)', async () => {
@@ -71,6 +76,13 @@ test('await_study_stage: неизвестный payload -> stay, известн�
   assert.deepEqual((valid.transitionResult as { data?: Partial<ProfileData> }).data, { studyStage: 'uni_3_4' });
 });
 
+test('await_study_stage: валидный ответ схлопывает вопрос (editMessage) с кнопкой «Изменить»', async () => {
+  const { edits } = await runStep('await_study_stage', {}, { callbackPayload: 'uni_3_4' });
+  assert.equal(edits.length, 1);
+  assert.ok(edits[0].includes('Этап обучения'));
+  assert.ok(edits[0].includes('Вуз, 3–4 курс'));
+});
+
 test('await_employment: подработка ведёт к вопросу об официальности', async () => {
   const { transitionResult } = await runStep('await_employment', { goal: 'job' }, { callbackPayload: 'side_job' });
   assert.equal(transitionResult.type, 'goto');
@@ -88,8 +100,8 @@ test('intercept: клик по кнопке текущего вопроса пр
   assert.equal(transitionResult, undefined);
 });
 
-test('intercept: клик по кнопке уже отвеченного блока обновляет поле и остаётся на месте', async () => {
-  const { transitionResult, replies } = await runIntercept(
+test('intercept: клик по кнопке уже отвеченного блока обновляет поле и схлопывает вопрос', async () => {
+  const { transitionResult, edits } = await runIntercept(
     'await_salary',
     { studyStage: 'uni_3_4', goal: 'job' },
     { callbackPayload: 'internship' },
@@ -97,11 +109,25 @@ test('intercept: клик по кнопке уже отвеченного бло
   assert.ok(transitionResult);
   assert.equal(transitionResult!.type, 'stay');
   assert.deepEqual((transitionResult as { data?: Partial<ProfileData> }).data, { goal: 'internship' });
-  assert.ok(replies[0].includes('Цель'));
+  assert.equal(edits.length, 1);
+  assert.ok(edits[0].includes('Цель'));
 });
 
 test('intercept: посторонний payload (например action-кнопки verify/offers) не перехватывается', async () => {
   const { transitionResult } = await runIntercept('await_final_action', {}, { callbackPayload: 'verify' });
+  assert.equal(transitionResult, undefined);
+});
+
+test('intercept: кнопка «✏️ Изменить» (edit:field) заново показывает варианты этого вопроса', async () => {
+  const { transitionResult, replies } = await runIntercept('await_salary', { goal: 'job' }, { callbackPayload: 'edit:goal' });
+  assert.ok(transitionResult);
+  assert.equal(transitionResult!.type, 'stay');
+  assert.equal(replies.length, 1);
+  assert.ok(replies[0].includes('Изменить: Цель'));
+});
+
+test('intercept: edit: с неизвестным полем игнорируется (undefined)', async () => {
+  const { transitionResult } = await runIntercept('await_salary', {}, { callbackPayload: 'edit:notAField' });
   assert.equal(transitionResult, undefined);
 });
 

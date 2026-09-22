@@ -44,6 +44,50 @@ import {
 
 type Step_ = ScenarioStep<BotContext, ProfileData, Step>;
 
+/** Реестр всех закрытых вопросов сценария. Нужен, чтобы:
+ * 1) распознать клик по кнопке из уже пройденного блока (пользователь хочет исправить старый ответ);
+ * 2) знать, что показать заново, когда нажата кнопка «✏️ Изменить». */
+interface ChoiceFieldConfig {
+  field: keyof ProfileData;
+  title: string;
+  options: ChoiceOption[];
+}
+
+const CHOICE_FIELDS: ChoiceFieldConfig[] = [
+  { field: 'studyStage', title: 'Этап обучения', options: STUDY_STAGE_OPTIONS },
+  { field: 'goal', title: 'Цель', options: GOAL_OPTIONS },
+  { field: 'field', title: 'Сфера', options: FIELD_OPTIONS },
+  { field: 'employment', title: 'Занятость', options: EMPLOYMENT_OPTIONS },
+  { field: 'employmentFormal', title: 'Официальность занятости', options: EMPLOYMENT_FORMAL_OPTIONS },
+  { field: 'salary', title: 'Ожидания по зарплате', options: SALARY_OPTIONS },
+  { field: 'workFormat', title: 'Формат работы', options: WORK_FORMAT_OPTIONS },
+  { field: 'overtime', title: 'Переработки', options: OVERTIME_OPTIONS },
+  { field: 'motivation', title: 'Мотивация', options: MOTIVATION_OPTIONS },
+];
+
+/** Какое поле профиля ожидает текущий шаг — чтобы отличить «это ответ на текущий вопрос»
+ * от «это клик по кнопке из старого блока». */
+const STEP_FIELD: Partial<Record<Step, keyof ProfileData>> = {
+  await_study_stage: 'studyStage',
+  await_goal: 'goal',
+  await_field: 'field',
+  await_employment: 'employment',
+  await_employment_formal: 'employmentFormal',
+  await_salary: 'salary',
+  await_work_format: 'workFormat',
+  await_overtime: 'overtime',
+  await_motivation: 'motivation',
+};
+
+function findChoiceField(payload: string | undefined): { config: ChoiceFieldConfig; option: ChoiceOption } | undefined {
+  if (!payload) return undefined;
+  for (const config of CHOICE_FIELDS) {
+    const option = config.options.find((o) => o.id === payload);
+    if (option) return { config, option };
+  }
+  return undefined;
+}
+
 /** Отправляет текст с markdown-разметкой (жирные заголовки шагов, эмодзи). */
 async function sendText(ctx: BotContext, text: string): Promise<void> {
   await ctx.reply(text, { format: 'markdown' });
@@ -75,11 +119,31 @@ async function acknowledgeCallback(ctx: BotContext): Promise<void> {
   }
 }
 
-/** Читает выбранный вариант из нажатия кнопки; подтверждает получение колбэка. */
-async function readChoice(ctx: BotContext, options: ChoiceOption[]): Promise<ChoiceOption | undefined> {
+/**
+ * Схлопывает вопрос после ответа: убирает варианты, показывает выбранный ответ и
+ * оставляет одну кнопку «✏️ Изменить» вместо целого списка. Так пройденные блоки
+ * не захламляют чат и не остаются кликабельными по всем старым вариантам сразу.
+ */
+async function finalizeChoice(ctx: BotContext, field: keyof ProfileData, option: ChoiceOption): Promise<void> {
+  const title = CHOICE_FIELDS.find((c) => c.field === field)?.title ?? String(field);
+  try {
+    await ctx.editMessage({
+      text: `✅ **${title}**: ${option.label}`,
+      format: 'markdown',
+      attachments: [actionsKeyboard([{ label: '✏️ Изменить', payload: `edit:${String(field)}` }])],
+    });
+  } catch (error) {
+    console.error('Не удалось схлопнуть клавиатуру вопроса (не критично)', error);
+  }
+}
+
+/** Читает выбранный вариант из нажатия кнопки, подтверждает колбэк и схлопывает вопрос. */
+async function readChoice(ctx: BotContext, field: keyof ProfileData, options: ChoiceOption[]): Promise<ChoiceOption | undefined> {
   const payload = ctx.callback?.payload;
   await acknowledgeCallback(ctx);
-  return options.find((option) => option.id === payload);
+  const match = options.find((option) => option.id === payload);
+  if (match) await finalizeChoice(ctx, field, match);
+  return match;
 }
 
 /** Читает свободный текст пользователя. */
@@ -125,7 +189,7 @@ const awaitName: Step_ = async ({ ctx, data }) => {
 };
 
 const awaitStudyStage: Step_ = async ({ ctx }) => {
-  const match = await readChoice(ctx, STUDY_STAGE_OPTIONS);
+  const match = await readChoice(ctx, 'studyStage', STUDY_STAGE_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -135,7 +199,7 @@ const awaitStudyStage: Step_ = async ({ ctx }) => {
 };
 
 const awaitGoal: Step_ = async ({ ctx }) => {
-  const match = await readChoice(ctx, GOAL_OPTIONS);
+  const match = await readChoice(ctx, 'goal', GOAL_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -156,7 +220,7 @@ const awaitCity: Step_ = async ({ ctx, data }) => {
 };
 
 const awaitField: Step_ = async ({ ctx }) => {
-  const match = await readChoice(ctx, FIELD_OPTIONS);
+  const match = await readChoice(ctx, 'field', FIELD_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -178,7 +242,7 @@ const awaitInterest: Step_ = async ({ ctx }) => {
 const CURRENTLY_WORKING_IDS = new Set(['side_job', 'working']);
 
 const awaitEmployment: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, EMPLOYMENT_OPTIONS);
+  const match = await readChoice(ctx, 'employment', EMPLOYMENT_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -193,7 +257,7 @@ const awaitEmployment: Step_ = async ({ ctx, data }) => {
 };
 
 const awaitEmploymentFormal: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, EMPLOYMENT_FORMAL_OPTIONS);
+  const match = await readChoice(ctx, 'employmentFormal', EMPLOYMENT_FORMAL_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -204,7 +268,7 @@ const awaitEmploymentFormal: Step_ = async ({ ctx, data }) => {
 };
 
 const awaitSalary: Step_ = async ({ ctx }) => {
-  const match = await readChoice(ctx, SALARY_OPTIONS);
+  const match = await readChoice(ctx, 'salary', SALARY_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -214,7 +278,7 @@ const awaitSalary: Step_ = async ({ ctx }) => {
 };
 
 const awaitWorkFormat: Step_ = async ({ ctx }) => {
-  const match = await readChoice(ctx, WORK_FORMAT_OPTIONS);
+  const match = await readChoice(ctx, 'workFormat', WORK_FORMAT_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -224,7 +288,7 @@ const awaitWorkFormat: Step_ = async ({ ctx }) => {
 };
 
 const awaitOvertime: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, OVERTIME_OPTIONS);
+  const match = await readChoice(ctx, 'overtime', OVERTIME_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -235,7 +299,7 @@ const awaitOvertime: Step_ = async ({ ctx, data }) => {
 };
 
 const awaitMotivation: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, MOTIVATION_OPTIONS);
+  const match = await readChoice(ctx, 'motivation', MOTIVATION_OPTIONS);
   if (!match) {
     await ctx.reply(invalidChoicePrompt());
     return transition.stay();
@@ -278,49 +342,6 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   return transition.stay();
 };
 
-/** Реестр всех закрытых вопросов сценария — нужен, чтобы распознать клик по кнопке
- * из уже пройденного блока (пользователь передумал и хочет исправить старый ответ). */
-interface ChoiceFieldConfig {
-  field: keyof ProfileData;
-  title: string;
-  options: ChoiceOption[];
-}
-
-const CHOICE_FIELDS: ChoiceFieldConfig[] = [
-  { field: 'studyStage', title: 'Этап обучения', options: STUDY_STAGE_OPTIONS },
-  { field: 'goal', title: 'Цель', options: GOAL_OPTIONS },
-  { field: 'field', title: 'Сфера', options: FIELD_OPTIONS },
-  { field: 'employment', title: 'Занятость', options: EMPLOYMENT_OPTIONS },
-  { field: 'employmentFormal', title: 'Официальность занятости', options: EMPLOYMENT_FORMAL_OPTIONS },
-  { field: 'salary', title: 'Ожидания по зарплате', options: SALARY_OPTIONS },
-  { field: 'workFormat', title: 'Формат работы', options: WORK_FORMAT_OPTIONS },
-  { field: 'overtime', title: 'Переработки', options: OVERTIME_OPTIONS },
-  { field: 'motivation', title: 'Мотивация', options: MOTIVATION_OPTIONS },
-];
-
-/** Какое поле профиля ожидает текущий шаг — чтобы отличить «это ответ на текущий вопрос»
- * от «это клик по кнопке из старого блока». */
-const STEP_FIELD: Partial<Record<Step, keyof ProfileData>> = {
-  await_study_stage: 'studyStage',
-  await_goal: 'goal',
-  await_field: 'field',
-  await_employment: 'employment',
-  await_employment_formal: 'employmentFormal',
-  await_salary: 'salary',
-  await_work_format: 'workFormat',
-  await_overtime: 'overtime',
-  await_motivation: 'motivation',
-};
-
-function findChoiceField(payload: string | undefined): { config: ChoiceFieldConfig; option: ChoiceOption } | undefined {
-  if (!payload) return undefined;
-  for (const config of CHOICE_FIELDS) {
-    const option = config.options.find((o) => o.id === payload);
-    if (option) return { config, option };
-  }
-  return undefined;
-}
-
 const awaitInn: Step_ = async ({ ctx, data }) => {
   // Кнопка «Посмотреть предложения» на итоговом сообщении не исчезает — если пользователь
   // передумал и нажал её вместо ввода ИНН, показываем предложения и остаёмся на этом шаге,
@@ -354,18 +375,33 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   idleTimeoutMs: 30 * 60 * 1000,
   createData: () => ({}),
   /**
-   * Срабатывает перед каждым шагом. Если нажата кнопка из уже отвеченного блока выше
-   * по чату (не текущего вопроса) — обновляем это поле и остаёмся на текущем шаге,
-   * вместо непонятного «выбери один из вариантов кнопкой ниже» (кнопки старых
-   * сообщений в MAX остаются кликабельными и после того, как чат ушёл вперёд).
+   * Срабатывает перед каждым шагом. Обрабатывает две ситуации с кнопками из чата выше:
+   * 1) payload вида `edit:<field>` — нажата кнопка «✏️ Изменить» на уже свёрнутом вопросе,
+   *    заново показываем варианты для этого поля;
+   * 2) payload — валидный вариант другого (не текущего) вопроса — пользователь кликнул
+   *    старую кнопку до того, как появилась «✏️ Изменить» (например, до перерисовки),
+   *    обновляем поле и сворачиваем этот вопрос так же, как обычный ответ.
+   * Кнопки старых сообщений в MAX остаются кликабельными даже после того, как чат ушёл
+   * вперёд — без этого перехвата это выглядело бы как «выбери один из вариантов ниже».
    */
   intercept: async ({ ctx, state, data }) => {
     if (!ctx.has('message_callback')) return undefined;
-    const match = findChoiceField(ctx.callback?.payload);
+    const payload = ctx.callback?.payload;
+
+    if (payload?.startsWith('edit:')) {
+      const field = payload.slice('edit:'.length) as keyof ProfileData;
+      const config = CHOICE_FIELDS.find((c) => c.field === field);
+      if (!config) return undefined;
+      await acknowledgeCallback(ctx);
+      await sendChoice(ctx, `✏️ **Изменить: ${config.title}**\n\nВыбери новый вариант:`, config.options);
+      return transition.stay();
+    }
+
+    const match = findChoiceField(payload);
     if (!match) return undefined;
     if (match.config.field === STEP_FIELD[state.step]) return undefined;
     await acknowledgeCallback(ctx);
-    await sendText(ctx, `✏️ Обновил «${match.config.title}»: ${match.option.label}`);
+    await finalizeChoice(ctx, match.config.field, match.option);
     return transition.stay({ [match.config.field]: match.option.id } as Partial<ProfileData>);
   },
   steps: {
