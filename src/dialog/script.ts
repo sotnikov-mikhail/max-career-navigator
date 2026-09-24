@@ -117,8 +117,8 @@ export const EMPLOYMENT_PROMPT =
 
 // 7. Ожидания по оплате — ветки расходятся
 export const INTERNSHIP_PAY_OPTIONS: ChoiceOption[] = [
-  { id: 'intern_paid', label: '💰 Только оплачиваемая' },
-  { id: 'intern_unpaid', label: '🤝 Можно и без оплаты' },
+  { id: 'intern_paid', label: '💰 Оплачиваемая' },
+  { id: 'intern_unpaid', label: '🤝 Без оплаты' },
 ];
 
 export const JOB_SALARY_OPTIONS: ChoiceOption[] = [

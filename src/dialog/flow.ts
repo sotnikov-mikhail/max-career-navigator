@@ -175,7 +175,8 @@ function questionView(step: Step, data: ProfileData): QuestionView {
         keyboard: multiKeyboard(MOTIVATION_OPTIONS, data.motivationDraft ?? []),
       };
     case 'await_salary_correction':
-      return { text: SALARY_CORRECTION_PROMPT, keyboard: autoKeyboard(options) };
+      // Столбиком: в половину ширины «Оставить как есть» обрезается.
+      return { text: SALARY_CORRECTION_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_salary_fix':
       return { text: SALARY_FIX_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_verification':
