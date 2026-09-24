@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from '../config.js';
-import type { ProfileData } from '../dialog/types.js';
+import type { ProfileAnswers } from '../dialog/types.js';
 
 /**
  * ДЕМО-имитация передачи анкеты «на биржу труда и в федеральную базу».
@@ -12,7 +12,7 @@ export interface SubmissionRecord {
   submittedAt: string;
   chatId: number;
   demo: true;
-  profile: ProfileData;
+  profile: ProfileAnswers;
 }
 
 function readSubmissions(): SubmissionRecord[] {
@@ -22,7 +22,7 @@ function readSubmissions(): SubmissionRecord[] {
   return JSON.parse(raw) as SubmissionRecord[];
 }
 
-export function submitToLaborExchangeMock(chatId: number, profile: ProfileData): SubmissionRecord {
+export function submitToLaborExchangeMock(chatId: number, profile: ProfileAnswers): SubmissionRecord {
   const record: SubmissionRecord = {
     submittedAt: new Date().toISOString(),
     chatId,

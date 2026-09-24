@@ -13,10 +13,10 @@ export interface KnownCity {
 
 export const KNOWN_CITIES: KnownCity[] = [
   { id: 'msk', name: 'Москва', latitude: 55.7558, longitude: 37.6173 },
-  { id: 'spb', name: 'Санкт-Петербург', latitude: 59.9311, longitude: 30.3609 },
   { id: 'kzn', name: 'Казань', latitude: 55.7961, longitude: 49.1064 },
-  { id: 'ekb', name: 'Екатеринбург', latitude: 56.8389, longitude: 60.6057 },
   { id: 'nsk', name: 'Новосибирск', latitude: 55.0084, longitude: 82.9357 },
+  { id: 'krd', name: 'Краснодар', latitude: 45.0355, longitude: 38.9753 },
+  { id: 'spb', name: 'Санкт-Петербург', latitude: 59.9311, longitude: 30.3609 },
 ];
 
 export const MAX_CITY_DISTANCE_KM = 150;

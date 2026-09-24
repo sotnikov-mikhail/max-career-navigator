@@ -1,24 +1,32 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ScenarioState } from '@maxhub/max-bot-api';
-import { careerScenario } from '../src/dialog/flow.js';
+import { careerScenario, needsSalaryCorrection } from '../src/dialog/flow.js';
 import type { BotContext, ProfileData, Step } from '../src/dialog/types.js';
-import { isValidInnFormat } from '../src/services/verification.js';
+import { isValidIdFormat, isValidInnFormat } from '../src/services/verification.js';
 import { matchVacancies } from '../src/services/matching.js';
 import { nearestCity } from '../src/services/geo.js';
-import { isSalaryInflated } from '../src/dialog/script.js';
+import { dueReminder, reminderMessage } from '../src/reminders.js';
 
 interface FakeCtxOptions {
   text?: string;
   callbackPayload?: string;
   location?: { latitude: number; longitude: number };
+  messageId?: string;
+}
+
+interface Edit {
+  id: string;
+  text: string;
+  hasKeyboard: boolean;
+  keyboardText: string;
 }
 
 function fakeCtx(options: FakeCtxOptions = {}) {
   const replies: string[] = [];
-  const edits: string[] = [];
+  const edits: Edit[] = [];
   const deleted: string[] = [];
-  const answeredCallbacks: number[] = [];
+  const notifications: string[] = [];
   let nextMid = 0;
   const isCallback = options.callbackPayload !== undefined;
   const ctx = {
@@ -26,321 +34,378 @@ function fakeCtx(options: FakeCtxOptions = {}) {
     callback: isCallback ? { payload: options.callbackPayload } : undefined,
     location: options.location,
     chatId: 42,
-    messageId: 'clicked',
+    messageId: options.messageId,
     has: (filter: string) => (filter === 'message_callback' ? isCallback : !isCallback),
     reply: async (text: string) => {
       replies.push(text);
       nextMid += 1;
       return { body: { mid: `m${nextMid}` } } as never;
     },
-    editMessage: async (extra: { text?: string | null }) => {
-      edits.push(extra.text ?? '');
-      return {} as never;
-    },
     deleteMessage: async (id: string) => {
       deleted.push(id);
       return {} as never;
     },
-    sendAction: async () => ({}) as never,
-    answerOnCallback: async () => {
-      answeredCallbacks.push(1);
+    answerOnCallback: async (extra: { notification?: string }) => {
+      notifications.push(extra.notification ?? '');
       return {} as never;
     },
     api: {
-      editMessage: async (_id: string, extra: { text?: string | null }) => {
-        edits.push(extra.text ?? '');
+      editMessage: async (id: string, extra: { text?: string | null; attachments?: unknown[] }) => {
+        const attachments = extra.attachments ?? [];
+        edits.push({
+          id,
+          text: extra.text ?? '',
+          hasKeyboard: attachments.length > 0,
+          keyboardText: JSON.stringify(attachments),
+        });
         return {} as never;
       },
     },
   };
-  return { ctx: ctx as unknown as BotContext, replies, edits, deleted, answeredCallbacks };
+  return { ctx: ctx as unknown as BotContext, replies, edits, deleted, notifications };
 }
 
-function fakeState(step: Step): ScenarioState<ProfileData, Step> {
-  return { id: 'career-navigator', step, data: {} };
+function fakeState(step: Step, data: ProfileData): ScenarioState<ProfileData, Step> {
+  return { id: 'career-navigator', step, data };
 }
 
-async function runStep(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies, edits, deleted } = fakeCtx(ctxOptions);
-  const stepFn = careerScenario.steps[step];
-  const transitionResult = await stepFn({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, edits, deleted, ctx };
+async function runStep(step: Step, data: ProfileData, options: FakeCtxOptions) {
+  const fake = fakeCtx(options);
+  const result = await careerScenario.steps[step]({ ctx: fake.ctx, state: fakeState(step, data), data });
+  return { result, ...fake };
 }
 
-async function runIntercept(step: Step, data: ProfileData, ctxOptions: FakeCtxOptions) {
-  const { ctx, replies, edits, deleted } = fakeCtx(ctxOptions);
-  const transitionResult = await careerScenario.intercept?.({ ctx, state: fakeState(step), data });
-  return { transitionResult, replies, edits, deleted, ctx };
+async function runIntercept(step: Step, data: ProfileData, options: FakeCtxOptions) {
+  const fake = fakeCtx(options);
+  const result = await careerScenario.intercept?.({ ctx: fake.ctx, state: fakeState(step, data), data });
+  return { result, ...fake };
 }
 
-function transitionData(result: unknown): Partial<ProfileData> | undefined {
-  return (result as { data?: Partial<ProfileData> }).data;
+function stepOf(result: unknown): Step | undefined {
+  return (result as { step?: Step }).step;
 }
 
-test('await_name: пустое имя переспрашивает (stay)', async () => {
-  const { transitionResult } = await runStep('await_name', {}, { text: '   ' });
-  assert.equal(transitionResult.type, 'stay');
+function dataOf(result: unknown): Partial<ProfileData> {
+  return (result as { data?: Partial<ProfileData> }).data ?? {};
+}
+
+// --- Имя и первый вопрос ----------------------------------------------------
+
+test('имя: пустое — служебное сообщение и stay', async () => {
+  const { result, replies } = await runStep('await_name', {}, { text: '   ' });
+  assert.equal(result.type, 'stay');
+  assert.ok(replies[0].includes('Имя не должно быть пустым'));
 });
 
-test('await_name: валидное имя переходит к study_stage и сохраняет данные', async () => {
-  const { transitionResult, replies } = await runStep('await_name', {}, { text: 'Аня' });
-  assert.equal(transitionResult.type, 'goto');
-  assert.equal((transitionResult as { step: Step }).step, 'await_study_stage');
-  assert.deepEqual((transitionResult as { data?: Partial<ProfileData> }).data, { name: 'Аня' });
-  assert.equal(replies.length, 1);
+test('имя: задаётся вопрос об этапе обучения, его id запоминается', async () => {
+  const { result, replies } = await runStep('await_name', {}, { text: 'Аня' });
+  assert.equal(stepOf(result), 'await_study_stage');
+  assert.deepEqual(dataOf(result), { name: 'Аня', currentQuestionId: 'm1' });
+  assert.ok(replies[0].includes('Аня'));
 });
 
-test('await_study_stage: неизвестный payload -> stay, известный -> goto await_goal', async () => {
-  const invalid = await runStep('await_study_stage', {}, { callbackPayload: 'not-a-real-option' });
-  assert.equal(invalid.transitionResult.type, 'stay');
-
-  const valid = await runStep('await_study_stage', {}, { callbackPayload: 'uni_3_4' });
-  assert.equal(valid.transitionResult.type, 'goto');
-  assert.equal((valid.transitionResult as { step: Step }).step, 'await_goal');
-  assert.deepEqual((valid.transitionResult as { data?: Partial<ProfileData> }).data, { studyStage: 'uni_3_4' });
+test('приветствие: без слов про «первую работу»', async () => {
+  const { replies } = await runStep('greet', {}, { text: '/start' });
+  assert.ok(!replies[0].includes('первую работу'));
 });
 
-test('await_study_stage: валидный ответ схлопывает вопрос (editMessage) с кнопкой «Изменить»', async () => {
-  const { edits } = await runStep('await_study_stage', {}, { callbackPayload: 'uni_3_4' });
+// --- Блоки и «Изменить» -----------------------------------------------------
+
+test('ответ сворачивает вопрос в «Вопрос: ответ» с кнопкой «Изменить» и задаёт следующий', async () => {
+  const { result, edits, replies } = await runStep('await_study_stage', { name: 'Аня', currentQuestionId: 'q1' }, { callbackPayload: 'uni_3_4' });
+  assert.equal(stepOf(result), 'await_goal');
   assert.equal(edits.length, 1);
-  assert.ok(edits[0].includes('Этап обучения'));
-  assert.ok(edits[0].includes('Вуз, 3–4 курс'));
+  assert.equal(edits[0].id, 'q1');
+  assert.ok(edits[0].text.startsWith('**Этап обучения:**'));
+  assert.ok(edits[0].keyboardText.includes('Изменить'));
+  assert.ok(replies[0].includes('Что для тебя сейчас важнее'));
+  assert.deepEqual(dataOf(result), {
+    studyStage: 'uni_3_4',
+    blockIds: { studyStage: 'q1' },
+    lastAnswered: 'studyStage',
+    currentQuestionId: 'm1',
+  });
 });
 
-test('ветки: вопрос об опыте — да/нет для стажировки, годы для работы', async () => {
-  const internship = await runStep('await_field', { goal: 'internship' }, { callbackPayload: 'it' });
-  assert.equal((internship.transitionResult as { step: Step }).step, 'await_experience');
-  assert.ok(internship.replies[0].includes('Есть ли у тебя уже опыт'));
+test('в свёрнутом блоке нет зелёной галочки (не дублируется со значком варианта)', async () => {
+  const { edits } = await runStep('await_experience', { goal: 'internship', currentQuestionId: 'q' }, { callbackPayload: 'exp_yes' });
+  assert.ok(!edits[0].text.includes('✅'));
+});
 
-  const job = await runStep('await_field', { goal: 'job' }, { callbackPayload: 'it' });
+test('«Изменить» остаётся только у последнего ответа — у предыдущего блока кнопка убирается', async () => {
+  const { edits } = await runStep(
+    'await_goal',
+    { name: 'Аня', studyStage: 'uni_3_4', blockIds: { studyStage: 'q1' }, lastAnswered: 'studyStage', currentQuestionId: 'q2' },
+    { callbackPayload: 'job' },
+  );
+  const previous = edits.find((e) => e.id === 'q1')!;
+  const current = edits.find((e) => e.id === 'q2')!;
+  assert.equal(previous.hasKeyboard, false);
+  assert.ok(current.keyboardText.includes('Изменить'));
+});
+
+test('«Изменить»: текущий вопрос удаляется, предыдущий блок раскрывается обратно в вопрос', async () => {
+  const data: ProfileData = { name: 'Аня', studyStage: 'uni_3_4', blockIds: { studyStage: 'q1' }, lastAnswered: 'studyStage', currentQuestionId: 'q2' };
+  const { result, deleted, edits } = await runIntercept('await_goal', data, { callbackPayload: 'back', messageId: 'q1' });
+  assert.deepEqual(deleted, ['q2']);
+  assert.equal(edits[0].id, 'q1');
+  assert.ok(edits[0].text.includes('На каком ты этапе'));
+  assert.ok(edits[0].keyboardText.includes('Вуз, 1–2 курс'));
+  assert.equal(stepOf(result), 'await_study_stage');
+  assert.equal(dataOf(result).currentQuestionId, 'q1');
+  assert.equal(dataOf(result).lastAnswered, undefined);
+});
+
+test('«Изменить» с чужого сообщения игнорируется', async () => {
+  const data: ProfileData = { blockIds: { studyStage: 'q1' }, lastAnswered: 'studyStage', currentQuestionId: 'q2' };
+  const { result, deleted } = await runIntercept('await_goal', data, { callbackPayload: 'back', messageId: 'old' });
+  assert.equal(result!.type, 'stay');
+  assert.deepEqual(deleted, []);
+});
+
+test('после «Изменить» и нового ответа удалённый вопрос приходит заново', async () => {
+  const { result, replies, edits } = await runStep(
+    'await_study_stage',
+    { name: 'Аня', studyStage: 'uni_3_4', blockIds: { studyStage: 'q1' }, currentQuestionId: 'q1' },
+    { callbackPayload: 'uni_1_2' },
+  );
+  assert.equal(stepOf(result), 'await_goal');
+  assert.ok(edits[0].text.includes('Вуз, 1–2 курс'));
+  assert.ok(replies[0].includes('Что для тебя сейчас важнее'));
+});
+
+// --- Ветки и порядок ---------------------------------------------------------
+
+test('опыт: да/нет для стажировки, годы для работы', async () => {
+  const internship = await runStep('await_field', { goal: 'internship', currentQuestionId: 'q' }, { callbackPayload: 'it' });
+  assert.ok(internship.replies[0].includes('практический опыт'));
+  const job = await runStep('await_field', { goal: 'job', currentQuestionId: 'q' }, { callbackPayload: 'it' });
   assert.ok(job.replies[0].includes('Сколько у тебя опыта'));
 });
 
-test('ветки: ответ из чужой ветки не принимается', async () => {
-  const { transitionResult } = await runStep('await_experience', { goal: 'internship' }, { callbackPayload: 'exp_2_3' });
-  assert.equal(transitionResult.type, 'stay');
+test('ответ из чужой ветки не принимается', async () => {
+  const { result } = await runStep('await_experience', { goal: 'internship' }, { callbackPayload: 'exp_2_3' });
+  assert.equal(result.type, 'stay');
 });
 
-test('ветки: оплата — оплачиваемая/нет для стажировки, вилка для работы', async () => {
-  const internship = await runStep('await_salary', { goal: 'internship' }, { callbackPayload: 'intern_unpaid' });
-  assert.deepEqual(transitionData(internship.transitionResult), { salary: 'intern_unpaid' });
+test('после оплаты — «50% пройдено», при повторе (после «Изменить») не дублируется', async () => {
+  const first = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q' }, { callbackPayload: 'sal_50_80' });
+  assert.ok(first.replies[0].includes('середине пути'));
+  assert.ok(first.replies[1].includes('Какой формат'));
+  assert.equal(dataOf(first.result).midpointSent, true);
 
-  const job = await runStep('await_salary', { goal: 'job' }, { callbackPayload: 'sal_80_150' });
-  assert.deepEqual(transitionData(job.transitionResult), { salary: 'sal_80_150' });
+  const again = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q', midpointSent: true }, { callbackPayload: 'sal_50_80' });
+  assert.equal(again.replies.length, 1);
 });
 
-test('порядок: занятость → оплата, формат → переезд → переработки', async () => {
-  const employment = await runStep('await_employment', { goal: 'job' }, { callbackPayload: 'free' });
-  assert.equal((employment.transitionResult as { step: Step }).step, 'await_salary');
-  const format = await runStep('await_work_format', { goal: 'job' }, { callbackPayload: 'remote' });
-  assert.equal((format.transitionResult as { step: Step }).step, 'await_relocation');
-  const relocation = await runStep('await_relocation', { goal: 'job' }, { callbackPayload: 'reloc_yes' });
-  assert.equal((relocation.transitionResult as { step: Step }).step, 'await_overtime');
+test('порядок: формат → переезд → переработки → мотивация', async () => {
+  const format = await runStep('await_work_format', { currentQuestionId: 'q' }, { callbackPayload: 'remote' });
+  assert.equal(stepOf(format.result), 'await_relocation');
+  const relocation = await runStep('await_relocation', { currentQuestionId: 'q' }, { callbackPayload: 'reloc_yes' });
+  assert.equal(stepOf(relocation.result), 'await_overtime');
+  const overtime = await runStep('await_overtime', { currentQuestionId: 'q' }, { callbackPayload: 'ready_sometimes' });
+  assert.equal(stepOf(overtime.result), 'await_motivation');
 });
 
-test('проверка ЗП: работа, мало опыта и завышенные ожидания → вопрос о пересмотре', async () => {
-  const { transitionResult, replies } = await runStep(
+// --- Мотивация: ровно два варианта ------------------------------------------
+
+test('мотивация: первый выбор — галочка слева и счётчик 1 из 2', async () => {
+  const { result, edits } = await runStep('await_motivation', { currentQuestionId: 'q' }, { callbackPayload: 'multi:growth' });
+  assert.equal(result.type, 'stay');
+  assert.deepEqual(dataOf(result).motivationDraft, ['growth']);
+  assert.ok(edits[0].text.includes('1 из 2'));
+  assert.ok(edits[0].keyboardText.includes('✔️ 🚀 Карьерный рост'));
+});
+
+test('мотивация: повторное нажатие снимает выбор', async () => {
+  const { result } = await runStep('await_motivation', { currentQuestionId: 'q', motivationDraft: ['growth'] }, { callbackPayload: 'multi:growth' });
+  assert.deepEqual(dataOf(result).motivationDraft, []);
+});
+
+test('мотивация: второй выбор — блок сворачивается без «Изменить», анкета идёт дальше', async () => {
+  const { result, edits } = await runStep(
     'await_motivation',
-    { goal: 'job', experience: 'exp_0_1', salary: 'sal_150_300' },
-    { callbackPayload: 'growth' },
+    { goal: 'internship', currentQuestionId: 'q', motivationDraft: ['growth'], blockIds: { overtime: 'o' }, lastAnswered: 'overtime' },
+    { callbackPayload: 'multi:mentor' },
   );
-  assert.equal((transitionResult as { step: Step }).step, 'await_salary_revision');
-  assert.ok(replies[0].includes('0–1 год'));
-  assert.ok(replies[0].includes('150–300'));
+  assert.equal(stepOf(result), 'await_verification');
+  assert.deepEqual(dataOf(result).motivation, ['growth', 'mentor']);
+  assert.equal(edits.find((e) => e.id === 'o')!.hasKeyboard, false);
+  const block = edits.find((e) => e.id === 'q')!;
+  assert.equal(block.hasKeyboard, false);
+  assert.ok(block.text.includes('Карьерный рост') && block.text.includes('Сильный наставник'));
 });
 
-test('проверка ЗП: адекватные ожидания и стажировка — сразу итог', async () => {
-  const job = await runStep('await_motivation', { goal: 'job', experience: 'exp_4_5', salary: 'sal_150_300' }, { callbackPayload: 'growth' });
-  assert.equal((job.transitionResult as { step: Step }).step, 'await_final_action');
+// --- Корректировка завышенных ожиданий --------------------------------------
 
-  const internship = await runStep('await_motivation', { goal: 'internship', experience: 'exp_no', salary: 'intern_paid' }, { callbackPayload: 'growth' });
-  assert.equal((internship.transitionResult as { step: Step }).step, 'await_final_action');
+test('корректировка ЗП: условие срабатывания', () => {
+  assert.equal(needsSalaryCorrection({ goal: 'job', experience: 'exp_0_1', salary: 'sal_80_150' }), true);
+  assert.equal(needsSalaryCorrection({ goal: 'job', studyStage: 'uni_1_2', experience: 'exp_4_5', salary: 'sal_300p' }), true);
+  assert.equal(needsSalaryCorrection({ goal: 'job', experience: 'exp_0_1', salary: 'sal_50_80' }), false);
+  assert.equal(needsSalaryCorrection({ goal: 'job', experience: 'exp_2_3', salary: 'sal_150_300' }), false);
+  assert.equal(needsSalaryCorrection({ goal: 'internship', experience: 'exp_no', salary: 'intern_paid' }), false);
 });
 
-test('проверка ЗП: ответ на вопрос о пересмотре сохраняется и ведёт к итогу', async () => {
-  const { transitionResult } = await runStep('await_salary_revision', { goal: 'job' }, { callbackPayload: 'rev_yes' });
-  assert.equal((transitionResult as { step: Step }).step, 'await_final_action');
-  assert.deepEqual(transitionData(transitionResult), { salaryRevision: 'rev_yes' });
-});
-
-test('isSalaryInflated: пороги по опыту', () => {
-  assert.equal(isSalaryInflated('exp_0_1', 'sal_50_80'), false);
-  assert.equal(isSalaryInflated('exp_0_1', 'sal_80_150'), true);
-  assert.equal(isSalaryInflated('exp_2_3', 'sal_80_150'), false);
-  assert.equal(isSalaryInflated('exp_2_3', 'sal_150_300'), true);
-  assert.equal(isSalaryInflated('exp_4_5', 'sal_300p'), true);
-  assert.equal(isSalaryInflated('exp_5p', 'sal_300p'), false);
-  assert.equal(isSalaryInflated('exp_yes', 'intern_paid'), false);
-});
-
-test('intercept: клик по кнопке текущего вопроса пропускается дальше (undefined)', async () => {
-  const { transitionResult } = await runIntercept('await_goal', { studyStage: 'uni_3_4' }, { callbackPayload: 'job' });
-  assert.equal(transitionResult, undefined);
-});
-
-test('intercept: клик по кнопке уже отвеченного блока обновляет поле и схлопывает вопрос', async () => {
-  const { transitionResult, edits } = await runIntercept(
-    'await_work_format',
-    { studyStage: 'uni_3_4', goal: 'job', field: 'it' },
-    { callbackPayload: 'economics' },
+test('корректировка ЗП: после мотивации показывается вопрос', async () => {
+  const { result, replies } = await runStep(
+    'await_motivation',
+    { goal: 'job', experience: 'exp_0_1', salary: 'sal_150_300', currentQuestionId: 'q', motivationDraft: ['growth'] },
+    { callbackPayload: 'multi:pay_now' },
   );
-  assert.equal(transitionResult!.type, 'stay');
-  assert.deepEqual(transitionData(transitionResult), { field: 'economics' });
-  assert.equal(edits.length, 1);
-  assert.ok(edits[0].includes('Сфера'));
+  assert.equal(stepOf(result), 'await_salary_correction');
+  assert.ok(replies[0].includes('Последний вопрос'));
 });
 
-test('intercept: смена цели сбрасывает опыт и оплату и переспрашивает их с вариантами новой ветки', async () => {
-  const { transitionResult, replies } = await runIntercept(
-    'await_work_format',
-    { goal: 'job', experience: 'exp_2_3', salary: 'sal_80_150' },
-    { callbackPayload: 'internship' },
+test('корректировка ЗП: «Оставить как есть» — дальше к верификации', async () => {
+  const { result } = await runStep('await_salary_correction', { goal: 'job', currentQuestionId: 'c' }, { callbackPayload: 'keep_salary' });
+  assert.equal(stepOf(result), 'await_verification');
+  assert.equal(dataOf(result).salaryRevision, 'keep');
+});
+
+test('корректировка ЗП: «Изменить ответ» — вилки до 150 000, обновляется и ранний блок зарплаты', async () => {
+  const opened = await runStep('await_salary_correction', { goal: 'job', currentQuestionId: 'c' }, { callbackPayload: 'fix_salary' });
+  assert.equal(stepOf(opened.result), 'await_salary_fix');
+  assert.ok(opened.edits[0].keyboardText.includes('80 000 – 150 000'));
+  assert.ok(!opened.edits[0].keyboardText.includes('150 000 – 300 000'));
+
+  const fixed = await runStep(
+    'await_salary_fix',
+    { goal: 'job', salary: 'sal_150_300', currentQuestionId: 'c', blockIds: { salary: 's' } },
+    { callbackPayload: 'sal_50_80' },
   );
-  const data = transitionData(transitionResult)!;
-  assert.equal(data.goal, 'internship');
-  assert.ok('experience' in data && data.experience === undefined);
-  assert.ok('salary' in data && data.salary === undefined);
-  assert.equal(replies.length, 2);
-  assert.ok(replies[0].includes('Опыт'));
-  assert.ok(replies[1].includes('Оплата'));
+  assert.equal(stepOf(fixed.result), 'await_verification');
+  assert.equal(dataOf(fixed.result).salary, 'sal_50_80');
+  assert.equal(dataOf(fixed.result).salaryRevision, 'changed');
+  assert.ok(fixed.edits.find((e) => e.id === 's')!.text.includes('50 000 – 80 000'));
 });
 
-test('intercept: старая кнопка опыта от другой ветки не применяется', async () => {
-  const { transitionResult } = await runIntercept('await_work_format', { goal: 'internship' }, { callbackPayload: 'exp_2_3' });
-  assert.equal(transitionResult, undefined);
+// --- Верификация, связь, финал ----------------------------------------------
+
+test('верификация через Госуслуги — демо-проверка и вопрос о связи', async () => {
+  const { result, replies } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_gosuslugi' });
+  assert.equal(stepOf(result), 'await_contact');
+  assert.equal(dataOf(result).verified, true);
+  assert.ok(replies.some((r) => r.includes('Имитируем проверку')));
+  assert.ok(replies.at(-1)!.includes('держать связь'));
 });
 
-test('intercept: посторонний payload (например action-кнопки verify/offers) не перехватывается', async () => {
-  const { transitionResult } = await runIntercept('await_final_action', {}, { callbackPayload: 'verify' });
-  assert.equal(transitionResult, undefined);
+test('ручной ввод: неверный формат отклоняется, СНИЛС с дефисами принимается', async () => {
+  const manual = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_manual' });
+  assert.equal(stepOf(manual.result), 'await_inn');
+  const bad = await runStep('await_inn', {}, { text: '12345' });
+  assert.equal(bad.result.type, 'stay');
+  const good = await runStep('await_inn', {}, { text: '123-456-789 01' });
+  assert.equal(stepOf(good.result), 'await_contact');
 });
 
-test('intercept: кнопка «✏️ Изменить» (edit:field) заново показывает варианты этого вопроса', async () => {
-  const { transitionResult, replies } = await runIntercept('await_salary', { goal: 'job' }, { callbackPayload: 'edit:goal' });
-  assert.ok(transitionResult);
-  assert.equal(transitionResult!.type, 'stay');
-  assert.equal(replies.length, 1);
-  assert.ok(replies[0].includes('Изменить: Цель'));
+test('связь → финал: сообщение «Это твоё начало!» с кнопками профиля и подборки', async () => {
+  const { result, replies } = await runStep('await_contact', { name: 'Аня', currentQuestionId: 'k' }, { callbackPayload: 'contact_online' });
+  assert.equal(stepOf(result), 'await_final_action');
+  assert.ok(replies.at(-1)!.includes('Это твоё начало'));
+  assert.ok(typeof dataOf(result).completedAt === 'number');
 });
 
-test('intercept: edit: с неизвестным полем игнорируется (undefined)', async () => {
-  const { transitionResult } = await runIntercept('await_salary', {}, { callbackPayload: 'edit:notAField' });
-  assert.equal(transitionResult, undefined);
-});
-
-test('await_final_action: verify ведёт к запросу ИНН, offers остаётся на месте', async () => {
-  const verify = await runStep('await_final_action', {}, { callbackPayload: 'verify' });
-  assert.equal(verify.transitionResult.type, 'goto');
-  assert.equal((verify.transitionResult as { step: Step }).step, 'await_inn');
-
+test('финал: карточка профиля и подборка (отмечается просмотр)', async () => {
+  const profile = await runStep('await_final_action', { name: 'Аня', goal: 'job', motivation: ['growth'], verified: true }, { callbackPayload: 'profile' });
+  assert.ok(profile.replies[0].includes('Мой профиль'));
+  assert.ok(profile.replies[0].includes('Аня'));
   const offers = await runStep('await_final_action', { field: 'it', goal: 'internship' }, { callbackPayload: 'offers' });
-  assert.equal(offers.transitionResult.type, 'stay');
-  assert.ok(offers.replies[0].length > 0);
+  assert.equal(dataOf(offers.result).offersViewed, true);
 });
 
-test('await_inn: клик "Посмотреть предложения" со старой клавиатуры не ломается на "невалидный ИНН"', async () => {
-  const { transitionResult, replies } = await runStep(
-    'await_inn',
-    { field: 'it', goal: 'internship' },
-    { callbackPayload: 'offers' },
-  );
-  assert.equal(transitionResult.type, 'stay');
-  assert.ok(!replies.some((text) => text.includes('ИНН')));
+// --- Напоминания ------------------------------------------------------------
+
+const MIN = 60 * 1000;
+
+test('напоминания: 3 минуты и час для недозаполненной анкеты', () => {
+  const t0 = 1_000_000;
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 2 * MIN), undefined);
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 3 * MIN), 'incomplete_3m');
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m'] }, t0 + 10 * MIN), undefined);
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m'] }, t0 + 60 * MIN), 'incomplete_1h');
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m', 'incomplete_1h'] }, t0 + 120 * MIN), undefined);
 });
 
-test('await_inn: обычный текст не похожий на ИНН всё ещё отклоняется', async () => {
-  const { transitionResult, replies } = await runStep('await_inn', {}, { text: 'не число' });
-  assert.equal(transitionResult.type, 'stay');
-  assert.ok(replies.some((text) => text.includes('ИНН')));
+test('напоминания: для готового профиля — только пока подборку не открыли', () => {
+  const t0 = 1_000_000;
+  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0 }, t0 + 3 * MIN), 'done_3m');
+  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0, offersViewed: true }, t0 + 60 * MIN), undefined);
 });
 
-test('isValidInnFormat: принимает 10 и 12 цифр, отклоняет остальное', () => {
-  assert.equal(isValidInnFormat('1234567890'), true);
-  assert.equal(isValidInnFormat('123456789012'), true);
-  assert.equal(isValidInnFormat('12345'), false);
-  assert.equal(isValidInnFormat('12345678901234'), false);
-  assert.equal(isValidInnFormat('abcdefghij'), false);
+test('часовое напоминание: честное число подборок вместо «появилось за час»', () => {
+  const message = reminderMessage('incomplete_1h', { field: 'it', goal: 'job' });
+  assert.ok(!message.text.includes('[X]'));
+  assert.ok(!message.text.includes('за этот час'));
+  assert.equal(message.payload, 'resume');
 });
 
-test('служебные сообщения: повторная ошибка удаляет предыдущую, в чате висит одна', async () => {
-  const { transitionResult, deleted } = await runStep(
-    'await_study_stage',
-    { serviceMessageIds: ['old-error'] },
-    { text: 'просто текст' },
-  );
-  assert.equal(transitionResult.type, 'stay');
-  assert.deepEqual(deleted, ['old-error']);
-  assert.deepEqual(transitionData(transitionResult), { serviceMessageIds: ['m1'] });
+test('«Вернуться» из напоминания: старый вопрос удаляется и задаётся заново внизу чата', async () => {
+  const { result, deleted, replies } = await runIntercept('await_field', { currentQuestionId: 'old' }, { callbackPayload: 'resume' });
+  assert.deepEqual(deleted, ['old']);
+  assert.ok(replies[0].includes('Какая сфера'));
+  assert.equal(dataOf(result).currentQuestionId, 'm1');
 });
 
-test('служебные сообщения: правильный ответ удаляет висящую ошибку', async () => {
-  const { transitionResult, deleted } = await runStep(
-    'await_study_stage',
-    { serviceMessageIds: ['old-error'] },
-    { callbackPayload: 'graduated' },
-  );
-  assert.equal(transitionResult.type, 'goto');
-  assert.deepEqual(deleted, ['old-error']);
-  assert.deepEqual(transitionData(transitionResult), { studyStage: 'graduated', serviceMessageIds: [] });
-});
+// --- Город ------------------------------------------------------------------
 
 test('город: быстрая кнопка', async () => {
-  const { transitionResult, edits } = await runStep('await_city', { goal: 'job', cityPromptId: 'p1' }, { callbackPayload: 'city:kzn' });
-  assert.equal((transitionResult as { step: Step }).step, 'await_field');
-  assert.deepEqual(transitionData(transitionResult), { city: 'Казань' });
-  assert.ok(edits[0].includes('Казань'));
+  const { result, edits } = await runStep('await_city', { currentQuestionId: 'c' }, { callbackPayload: 'city:krd' });
+  assert.equal(stepOf(result), 'await_field');
+  assert.equal(dataOf(result).city, 'Краснодар');
+  assert.ok(edits[0].text.includes('Краснодар'));
 });
 
 test('город: геопозиция рядом с известным городом', async () => {
-  const { transitionResult, edits } = await runStep(
-    'await_city',
-    { goal: 'job', cityPromptId: 'p1' },
-    { location: { latitude: 55.75, longitude: 49.2 } },
-  );
-  assert.deepEqual(transitionData(transitionResult), { city: 'Казань' });
-  assert.ok(edits[0].includes('по геопозиции'));
+  const { result, edits } = await runStep('await_city', { currentQuestionId: 'c' }, { location: { latitude: 55.75, longitude: 49.2 } });
+  assert.equal(dataOf(result).city, 'Казань');
+  assert.ok(edits[0].text.includes('по геопозиции'));
 });
 
 test('город: геопозиция далеко от всех городов — честно переспрашиваем', async () => {
-  const { transitionResult, replies } = await runStep(
-    'await_city',
-    { goal: 'job', cityPromptId: 'p1' },
-    { location: { latitude: 43.1, longitude: 131.9 } },
-  );
-  assert.equal(transitionResult.type, 'stay');
+  const { result, replies } = await runStep('await_city', { currentQuestionId: 'c' }, { location: { latitude: 43.1, longitude: 131.9 } });
+  assert.equal(result.type, 'stay');
   assert.ok(replies[0].includes('Не смог определить город'));
 });
 
-test('город: текст по-прежнему принимается', async () => {
-  const { transitionResult } = await runStep('await_city', { goal: 'job', cityPromptId: 'p1' }, { text: 'Тула' });
-  assert.deepEqual(transitionData(transitionResult), { city: 'Тула' });
+test('город: текст принимается', async () => {
+  const { result } = await runStep('await_city', { currentQuestionId: 'c' }, { text: 'Тула' });
+  assert.equal(dataOf(result).city, 'Тула');
 });
 
-test('intercept: «✏️ Изменить» у города присылает новый вопрос и запоминает его id', async () => {
-  const { transitionResult, replies } = await runIntercept('await_salary', { city: 'Тула' }, { callbackPayload: 'edit:city' });
-  assert.equal(transitionResult!.type, 'stay');
-  assert.ok(replies[0].includes('Изменить: Город'));
-  assert.deepEqual(transitionData(transitionResult), { cityPromptId: 'm1' });
+// --- Служебные сообщения -----------------------------------------------------
+
+test('служебные сообщения: повторная ошибка заменяет предыдущую', async () => {
+  const { result, deleted } = await runStep('await_study_stage', { serviceMessageIds: ['old-error'] }, { text: 'просто текст' });
+  assert.equal(result.type, 'stay');
+  assert.deepEqual(deleted, ['old-error']);
+  assert.deepEqual(dataOf(result), { serviceMessageIds: ['m1'] });
 });
 
-test('intercept: быстрая кнопка города на более позднем шаге обновляет город', async () => {
-  const { transitionResult } = await runIntercept('await_salary', { city: 'Тула', cityPromptId: 'p1' }, { callbackPayload: 'city:spb' });
-  assert.deepEqual(transitionData(transitionResult), { city: 'Санкт-Петербург' });
+test('служебные сообщения: правильный ответ убирает висящую ошибку', async () => {
+  const { result, deleted } = await runStep('await_study_stage', { serviceMessageIds: ['old-error'], currentQuestionId: 'q' }, { callbackPayload: 'graduated' });
+  assert.equal(stepOf(result), 'await_goal');
+  assert.ok(deleted.includes('old-error'));
+  assert.deepEqual(dataOf(result).serviceMessageIds, []);
 });
 
-test('intercept: геопозиция до вопроса о городе не перехватывается', async () => {
-  const { transitionResult } = await runIntercept('await_name', {}, { location: { latitude: 55.75, longitude: 37.6 } });
-  assert.equal(transitionResult, undefined);
+// --- Сервисы ----------------------------------------------------------------
+
+test('форматы ИНН и СНИЛС', () => {
+  assert.equal(isValidInnFormat('1234567890'), true);
+  assert.equal(isValidInnFormat('123456789012'), true);
+  assert.equal(isValidIdFormat('12345678901'), true);
+  assert.equal(isValidIdFormat('123-456-789 01'), true);
+  assert.equal(isValidIdFormat('12345'), false);
+  assert.equal(isValidIdFormat('abcdefghijk'), false);
 });
 
-test('nearestCity: находит ближайший город и расстояние', () => {
-  const { city, distanceKm } = nearestCity(59.9, 30.3);
-  assert.equal(city.name, 'Санкт-Петербург');
+test('nearestCity: Краснодар в списке городов', () => {
+  const { city, distanceKm } = nearestCity(45.04, 38.98);
+  assert.equal(city.name, 'Краснодар');
   assert.ok(distanceKm < 10);
 });
 
-test('matchVacancies: подбирает не больше лимита и учитывает направление', () => {
-  const result = matchVacancies({ field: 'it', goal: 'internship', city: 'Москва' }, 3);
-  assert.ok(result.length <= 3);
-  assert.ok(result.length > 0);
+test('matchVacancies: не больше лимита, новые сферы находят вакансии', () => {
+  assert.ok(matchVacancies({ field: 'it', goal: 'internship', city: 'Москва' }, 3).length <= 3);
+  assert.ok(matchVacancies({ field: 'design', goal: 'job' }, 3).some((v) => v.field === 'design'));
 });

@@ -1,173 +1,320 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
-import { choiceKeyboard, choiceKeyboardRow, actionsKeyboard, cityKeyboard } from '../keyboards.js';
+import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
 import { matchVacancies, type Vacancy } from '../services/matching.js';
-import { isValidInnFormat, runDemoVerification } from '../services/verification.js';
+import { isValidIdFormat, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
 import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
-import type { BotContext, ProfileData, Step, Goal } from './types.js';
+import type { BotContext, Goal, ProfileAnswers, ProfileData, Step } from './types.js';
 import {
-  GREETING,
-  NAME_EMPTY_PROMPT,
-  STUDY_STAGE_OPTIONS,
-  studyStagePrompt,
+  BACK_BUTTON_LABEL,
+  CITY_EMPTY_PROMPT,
+  CITY_PROMPT,
+  CONTACT_OPTIONS,
+  CONTACT_PROMPT,
+  EMPLOYMENT_OPTIONS,
+  EMPLOYMENT_PROMPT,
+  FIELD_OPTIONS,
+  FIELD_PROMPT,
+  FINAL_BUTTON_OFFERS,
+  FINAL_BUTTON_PROFILE,
+  FINAL_MESSAGE,
   GOAL_OPTIONS,
   GOAL_PROMPT,
-  cityPrompt,
-  CITY_EDIT_PROMPT,
-  CITY_EMPTY_PROMPT,
-  cityTooFarPrompt,
-  cityRecap,
-  FIELD_OPTIONS,
-  fieldPrompt,
-  INTERNSHIP_EXPERIENCE_OPTIONS,
-  JOB_EXPERIENCE_OPTIONS,
-  experienceOptions,
-  experiencePrompt,
-  EMPLOYMENT_OPTIONS,
-  employmentPrompt,
-  INTERNSHIP_PAY_OPTIONS,
-  JOB_SALARY_OPTIONS,
-  salaryOptions,
-  salaryPrompt,
-  isSalaryInflated,
-  SALARY_REVISION_OPTIONS,
-  salaryRevisionPrompt,
-  WORK_FORMAT_OPTIONS,
-  WORK_FORMAT_PROMPT,
-  RELOCATION_OPTIONS,
-  RELOCATION_PROMPT,
+  GREETING,
+  JOB_SALARY_FIX_OPTIONS,
+  MANUAL_ID_INVALID,
+  MANUAL_ID_PROMPT,
+  MIDPOINT_MESSAGE,
+  MOTIVATION_COUNT,
+  MOTIVATION_OPTIONS,
+  NAME_EMPTY_PROMPT,
+  NAME_QUESTION,
   OVERTIME_OPTIONS,
   OVERTIME_PROMPT,
-  MOTIVATION_OPTIONS,
-  motivationPrompt,
+  RELOCATION_OPTIONS,
+  RELOCATION_PROMPT,
+  SALARY_CORRECTION_OPTIONS,
+  SALARY_CORRECTION_PROMPT,
+  SALARY_FIX_PROMPT,
+  STUDY_STAGE_OPTIONS,
+  VERIFICATION_OPTIONS,
+  VERIFICATION_PROMPT,
+  VERIFICATION_SUCCESS,
+  WORK_FORMAT_OPTIONS,
+  WORK_FORMAT_PROMPT,
+  cityTooFarPrompt,
+  experienceOptions,
+  experiencePrompt,
   invalidChoicePrompt,
-  finalSummary,
-  FINAL_BUTTON_VERIFY,
-  FINAL_BUTTON_OFFERS,
-  VERIFY_INN_PROMPT,
-  VERIFY_INN_INVALID,
-  VERIFY_PROCESSING,
-  verifySuccess,
-  offersIntro,
+  motivationPrompt,
   offerLine,
+  offersIntro,
+  salaryOptions,
+  salaryPrompt,
+  salaryTitle,
+  studyStagePrompt,
+  verificationProcessing,
   type ChoiceOption,
 } from './script.js';
 
 type Step_ = ScenarioStep<BotContext, ProfileData, Step>;
 type Transition = Awaited<ReturnType<Step_>>;
+type Keyboard = ReturnType<typeof choiceKeyboard>;
 
-/** Реестр всех закрытых вопросов сценария. Нужен, чтобы:
- * 1) распознать клик по кнопке из уже пройденного блока (пользователь хочет исправить старый ответ);
- * 2) знать, что показать заново, когда нажата кнопка «✏️ Изменить».
- * Опыт и оплата встречаются дважды — отдельный набор вариантов для каждой ветки (goal). */
-interface ChoiceFieldConfig {
-  field: keyof ProfileData;
-  title: string;
-  options: ChoiceOption[];
-  goal?: Goal;
+interface QuestionView {
+  text: string;
+  keyboard?: Keyboard;
 }
-
-const CHOICE_FIELDS: ChoiceFieldConfig[] = [
-  { field: 'studyStage', title: 'Этап обучения', options: STUDY_STAGE_OPTIONS },
-  { field: 'goal', title: 'Цель', options: GOAL_OPTIONS },
-  { field: 'field', title: 'Сфера', options: FIELD_OPTIONS },
-  { field: 'experience', title: 'Опыт', options: INTERNSHIP_EXPERIENCE_OPTIONS, goal: 'internship' },
-  { field: 'experience', title: 'Опыт', options: JOB_EXPERIENCE_OPTIONS, goal: 'job' },
-  { field: 'employment', title: 'Занятость', options: EMPLOYMENT_OPTIONS },
-  { field: 'salary', title: 'Оплата', options: INTERNSHIP_PAY_OPTIONS, goal: 'internship' },
-  { field: 'salary', title: 'Ожидания по зарплате', options: JOB_SALARY_OPTIONS, goal: 'job' },
-  { field: 'workFormat', title: 'Формат работы', options: WORK_FORMAT_OPTIONS },
-  { field: 'relocation', title: 'Переезд', options: RELOCATION_OPTIONS },
-  { field: 'overtime', title: 'Переработки', options: OVERTIME_OPTIONS },
-  { field: 'motivation', title: 'Мотивация', options: MOTIVATION_OPTIONS },
-  { field: 'salaryRevision', title: 'Готовность пересмотреть ЗП', options: SALARY_REVISION_OPTIONS },
-];
-
-/** Какое поле профиля ожидает текущий шаг — чтобы отличить «это ответ на текущий вопрос»
- * от «это клик по кнопке из старого блока». */
-const STEP_FIELD: Partial<Record<Step, keyof ProfileData>> = {
-  await_study_stage: 'studyStage',
-  await_goal: 'goal',
-  await_field: 'field',
-  await_experience: 'experience',
-  await_employment: 'employment',
-  await_salary: 'salary',
-  await_work_format: 'workFormat',
-  await_relocation: 'relocation',
-  await_overtime: 'overtime',
-  await_motivation: 'motivation',
-  await_salary_revision: 'salaryRevision',
-};
-
-/** Поля, у которых варианты зависят от ветки — при смене цели их ответы сбрасываются. */
-const BRANCH_FIELDS: Array<{ field: 'experience' | 'salary'; step: Step }> = [
-  { field: 'experience', step: 'await_experience' },
-  { field: 'salary', step: 'await_salary' },
-];
 
 function goalOf(data: ProfileData): Goal {
   return data.goal ?? 'job';
 }
 
-function findChoiceField(payload: string | undefined): { config: ChoiceFieldConfig; option: ChoiceOption } | undefined {
-  if (!payload) return undefined;
-  for (const config of CHOICE_FIELDS) {
-    const option = config.options.find((o) => o.id === payload);
-    if (option) return { config, option };
+// ---------------------------------------------------------------------------
+// Вопросы-«блоки»: после ответа сообщение с вопросом сворачивается в «Вопрос: ответ».
+// ---------------------------------------------------------------------------
+
+/** Шаги, чьё сообщение с вопросом сворачивается в блок (у остальных — свободный ввод или финал). */
+const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
+  'await_study_stage',
+  'await_goal',
+  'await_city',
+  'await_field',
+  'await_experience',
+  'await_employment',
+  'await_salary',
+  'await_work_format',
+  'await_relocation',
+  'await_overtime',
+  'await_motivation',
+  'await_salary_correction',
+  'await_salary_fix',
+  'await_verification',
+  'await_contact',
+]);
+
+/** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
+const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
+  studyStage: 'await_study_stage',
+  goal: 'await_goal',
+  city: 'await_city',
+  field: 'await_field',
+  experience: 'await_experience',
+  employment: 'await_employment',
+  salary: 'await_salary',
+  workFormat: 'await_work_format',
+  relocation: 'await_relocation',
+  overtime: 'await_overtime',
+};
+
+/** Варианты ответа для шага с выбором (для проверки payload). */
+function stepOptions(step: Step, data: ProfileData): ChoiceOption[] {
+  const goal = goalOf(data);
+  switch (step) {
+    case 'await_study_stage':
+      return STUDY_STAGE_OPTIONS;
+    case 'await_goal':
+      return GOAL_OPTIONS;
+    case 'await_field':
+      return FIELD_OPTIONS;
+    case 'await_experience':
+      return experienceOptions(goal);
+    case 'await_employment':
+      return EMPLOYMENT_OPTIONS;
+    case 'await_salary':
+      return salaryOptions(goal);
+    case 'await_work_format':
+      return WORK_FORMAT_OPTIONS;
+    case 'await_relocation':
+      return RELOCATION_OPTIONS;
+    case 'await_overtime':
+      return OVERTIME_OPTIONS;
+    case 'await_salary_correction':
+      return SALARY_CORRECTION_OPTIONS;
+    case 'await_salary_fix':
+      return JOB_SALARY_FIX_OPTIONS;
+    case 'await_verification':
+      return VERIFICATION_OPTIONS;
+    case 'await_contact':
+      return CONTACT_OPTIONS;
+    default:
+      return [];
   }
-  return undefined;
 }
 
-/** Настройки вопроса для поля с учётом ветки (для опыта и оплаты — своя у стажировки и работы). */
-function fieldConfig(field: keyof ProfileData, goal: Goal): ChoiceFieldConfig | undefined {
-  return CHOICE_FIELDS.find((c) => c.field === field && (c.goal === undefined || c.goal === goal));
+/** Как выглядит вопрос шага: текст + клавиатура. Используется и при первом показе, и при «Изменить», и в напоминаниях. */
+function questionView(step: Step, data: ProfileData): QuestionView {
+  const goal = goalOf(data);
+  const options = stepOptions(step, data);
+  switch (step) {
+    case 'await_name':
+      return { text: NAME_QUESTION };
+    case 'await_study_stage':
+      return { text: studyStagePrompt(data.name), keyboard: autoKeyboard(options) };
+    case 'await_goal':
+      return { text: GOAL_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_city':
+      return { text: CITY_PROMPT, keyboard: cityKeyboard(KNOWN_CITIES) };
+    case 'await_field':
+      return { text: FIELD_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_experience':
+      return { text: experiencePrompt(goal), keyboard: autoKeyboard(options) };
+    case 'await_employment':
+      return { text: EMPLOYMENT_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_salary':
+      return { text: salaryPrompt(goal), keyboard: autoKeyboard(options) };
+    case 'await_work_format':
+      return { text: WORK_FORMAT_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_relocation':
+      return { text: RELOCATION_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_overtime':
+      return { text: OVERTIME_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_motivation':
+      return {
+        text: motivationPrompt((data.motivationDraft ?? []).length),
+        keyboard: multiKeyboard(MOTIVATION_OPTIONS, data.motivationDraft ?? []),
+      };
+    case 'await_salary_correction':
+      return { text: SALARY_CORRECTION_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_salary_fix':
+      return { text: SALARY_FIX_PROMPT, keyboard: choiceKeyboard(options) };
+    case 'await_verification':
+      return { text: VERIFICATION_PROMPT, keyboard: choiceKeyboard(options) };
+    case 'await_inn':
+      return { text: MANUAL_ID_PROMPT };
+    case 'await_contact':
+      return { text: CONTACT_PROMPT, keyboard: autoKeyboard(options) };
+    case 'await_final_action':
+      return {
+        text: FINAL_MESSAGE,
+        keyboard: actionsKeyboard([
+          { label: FINAL_BUTTON_PROFILE, payload: 'profile' },
+          { label: FINAL_BUTTON_OFFERS, payload: 'offers' },
+        ]),
+      };
+    default:
+      return { text: '' };
+  }
 }
 
-function optionLabel(options: ChoiceOption[], id: string | undefined): string {
-  return options.find((o) => o.id === id)?.label ?? '';
+function labelOf(options: ChoiceOption[], id: string | undefined): string {
+  return options.find((o) => o.id === id)?.label ?? '—';
 }
 
-/** Отправляет текст с markdown-разметкой (жирные заголовки шагов, эмодзи). */
+const FIELD_TITLES: Partial<Record<keyof ProfileAnswers, string>> = {
+  studyStage: 'Этап обучения',
+  goal: 'Цель',
+  city: 'Город',
+  field: 'Сфера',
+  experience: 'Опыт',
+  employment: 'Занятость',
+  workFormat: 'Формат работы',
+  relocation: 'Переезд',
+  overtime: 'Переработки',
+  motivation: 'Мотивация',
+  salaryRevision: 'Корректировка ЗП',
+  verificationMethod: 'Верификация',
+  contact: 'Связь с экспертами',
+};
+
+function fieldTitle(field: keyof ProfileAnswers, data: ProfileData): string {
+  if (field === 'salary') return salaryTitle(goalOf(data));
+  return FIELD_TITLES[field] ?? String(field);
+}
+
+/** Подпись ответа для свёрнутого блока и карточки профиля. */
+function answerLabel(field: keyof ProfileAnswers, data: ProfileData): string {
+  const goal = goalOf(data);
+  switch (field) {
+    case 'name':
+      return data.name ?? '—';
+    case 'studyStage':
+      return labelOf(STUDY_STAGE_OPTIONS, data.studyStage);
+    case 'goal':
+      return labelOf(GOAL_OPTIONS, data.goal);
+    case 'city':
+      return data.city ? `📍 ${data.city}${data.cityFromGeo ? ' (по геопозиции)' : ''}` : '—';
+    case 'field':
+      return labelOf(FIELD_OPTIONS, data.field);
+    case 'experience':
+      return labelOf(experienceOptions(goal), data.experience);
+    case 'employment':
+      return labelOf(EMPLOYMENT_OPTIONS, data.employment);
+    case 'salary':
+      return labelOf(salaryOptions(goal), data.salary);
+    case 'workFormat':
+      return labelOf(WORK_FORMAT_OPTIONS, data.workFormat);
+    case 'relocation':
+      return labelOf(RELOCATION_OPTIONS, data.relocation);
+    case 'overtime':
+      return labelOf(OVERTIME_OPTIONS, data.overtime);
+    case 'motivation':
+      // Array.isArray — в старых сессиях мотивация хранилась строкой.
+      return (Array.isArray(data.motivation) ? data.motivation : []).map((id) => labelOf(MOTIVATION_OPTIONS, id)).join(', ') || '—';
+    case 'salaryRevision':
+      return data.salaryRevision === 'keep' ? labelOf(SALARY_CORRECTION_OPTIONS, 'keep_salary') : '✏️ Сумма изменена';
+    case 'verificationMethod':
+      return labelOf(VERIFICATION_OPTIONS, data.verificationMethod);
+    case 'contact':
+      return labelOf(CONTACT_OPTIONS, data.contact);
+    default:
+      return '—';
+  }
+}
+
+/** «Вопрос: ответ» без галочки — у вариантов ответа и так есть свои значки. */
+function recapText(field: keyof ProfileAnswers, data: ProfileData): string {
+  return `**${fieldTitle(field, data)}:** ${answerLabel(field, data)}`;
+}
+
+function backKeyboard(): Keyboard {
+  return actionsKeyboard([{ label: BACK_BUTTON_LABEL, payload: 'back' }]);
+}
+
+// ---------------------------------------------------------------------------
+// Отправка и редактирование сообщений
+// ---------------------------------------------------------------------------
+
 async function sendText(ctx: BotContext, text: string): Promise<void> {
   await ctx.reply(text, { format: 'markdown' });
 }
 
-/** Отправляет вопрос с кнопками-вариантами (закрытый вопрос, как в обоих черновиках сценария). */
-async function sendChoice(ctx: BotContext, text: string, options: ChoiceOption[]): Promise<void> {
-  await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboard(options)] });
+/** Задаёт вопрос шага. Возвращает id сообщения, только если вопрос потом сворачивается в блок. */
+async function ask(ctx: BotContext, step: Step, data: ProfileData): Promise<string | undefined> {
+  const view = questionView(step, data);
+  const message = await ctx.reply(view.text, {
+    format: 'markdown',
+    attachments: view.keyboard ? [view.keyboard] : undefined,
+  });
+  return BLOCK_STEPS.has(step) ? message.body.mid : undefined;
 }
 
-/** То же самое, но короткие варианты (2 варианта) идут в один ряд — компактнее для бинарного выбора. */
-async function sendChoiceRow(ctx: BotContext, text: string, options: ChoiceOption[]): Promise<void> {
-  await ctx.reply(text, { format: 'markdown', attachments: [choiceKeyboardRow(options)] });
-}
-
-/** Бинарные вопросы (2 варианта) — в один ряд, остальные — столбиком. */
-async function sendChoiceAuto(ctx: BotContext, text: string, options: ChoiceOption[]): Promise<void> {
-  if (options.length === 2) return sendChoiceRow(ctx, text, options);
-  return sendChoice(ctx, text, options);
-}
-
-/** Вопрос о городе с кнопкой геопозиции и быстрыми городами. Возвращает id сообщения, чтобы потом свернуть его. */
-async function sendCityPrompt(ctx: BotContext, text: string): Promise<string> {
-  const message = await ctx.reply(text, { format: 'markdown', attachments: [cityKeyboard(KNOWN_CITIES)] });
-  return message.body.mid;
-}
-
-async function deleteServiceMessages(ctx: BotContext, data: ProfileData): Promise<void> {
-  for (const id of data.serviceMessageIds ?? []) {
-    try {
-      await ctx.deleteMessage(id);
-    } catch (error) {
-      console.error('Не удалось удалить служебное сообщение (не критично)', error);
-    }
+/** Редактирование сообщения — некритично: ошибка не должна ломать сценарий. */
+async function editMessage(ctx: BotContext, messageId: string | undefined, text: string, keyboard?: Keyboard): Promise<void> {
+  if (!messageId) return;
+  try {
+    await ctx.api.editMessage(messageId, { text, format: 'markdown', attachments: keyboard ? [keyboard] : [] });
+  } catch (error) {
+    console.error('Не удалось отредактировать сообщение (не критично)', error);
   }
 }
 
+async function deleteMessage(ctx: BotContext, messageId: string | undefined): Promise<void> {
+  if (!messageId) return;
+  try {
+    await ctx.deleteMessage(messageId);
+  } catch (error) {
+    console.error('Не удалось удалить сообщение (не критично)', error);
+  }
+}
+
+async function deleteServiceMessages(ctx: BotContext, data: ProfileData): Promise<void> {
+  for (const id of data.serviceMessageIds ?? []) await deleteMessage(ctx, id);
+}
+
 /**
- * Сообщение об ошибке ввода («выбери кнопкой», «имя не должно быть пустым» и т.п.).
- * Предыдущее такое сообщение удаляется, чтобы при повторных ошибках в чате висело не больше одного,
- * а id нового запоминается — его удалит `advance`, как только пользователь ответит правильно.
+ * Сообщение об ошибке ввода. Предыдущее такое сообщение удаляется, чтобы при повторных ошибках
+ * в чате висело не больше одного, а id нового запоминается — его удалит `advance` после верного ответа.
  */
 async function sendService(ctx: BotContext, data: ProfileData, text: string): Promise<Transition> {
   await deleteServiceMessages(ctx, data);
@@ -183,57 +330,99 @@ async function advance(ctx: BotContext, data: ProfileData, step: Step, patch: Pa
 }
 
 /**
- * Подтверждает нажатие кнопки (убирает спиннер загрузки у пользователя).
- * MAX отклоняет пустое тело `{}` ошибкой 400 «message or notification required» —
- * это поле не описано в типах SDK 0.3.1, поэтому приводим тип вручную.
- * Обёрнуто в try/catch: подтверждение — не критично, обработка ответа не должна падать из-за него.
+ * Подтверждает нажатие кнопки (убирает спиннер). MAX отклоняет пустое тело `{}` ошибкой 400
+ * «message or notification required» — поля нет в типах SDK 0.3.1, поэтому тип приводим вручную.
+ * Пустая строка — без всплывающей плашки; непустая — короткая подсказка пользователю.
  */
-async function acknowledgeCallback(ctx: BotContext): Promise<void> {
+async function acknowledgeCallback(ctx: BotContext, notification = ''): Promise<void> {
   if (!ctx.has('message_callback')) return;
   try {
-    // Пустая строка убирает спиннер без видимой всплывающей плашки для пользователя.
-    await ctx.answerOnCallback({ notification: '' } as Parameters<BotContext['answerOnCallback']>[0]);
+    await ctx.answerOnCallback({ notification } as Parameters<BotContext['answerOnCallback']>[0]);
   } catch (error) {
-    console.error('Не удалось подтвердить callback (не критично, продолжаем)', error);
+    console.error('Не удалось подтвердить callback (не критично)', error);
   }
+}
+
+function readText(ctx: BotContext): string | undefined {
+  const text = ctx.message?.body.text?.trim();
+  return text && text.length > 0 ? text : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Ответ на вопрос-блок
+// ---------------------------------------------------------------------------
+
+interface AnswerOptions {
+  /** Оставить у свёрнутого блока кнопку «Изменить». На последних вопросах анкеты её нет. */
+  back: boolean;
+  /** Что сделать между сворачиванием блока и следующим вопросом (промежуточное сообщение, демо-проверка). */
+  before?: (ctx: BotContext, updated: ProfileData) => Promise<Partial<ProfileData> | void>;
 }
 
 /**
- * Схлопывает вопрос после ответа: убирает варианты, показывает выбранный ответ и
- * оставляет одну кнопку «✏️ Изменить» вместо целого списка. Так пройденные блоки
- * не захламляют чат и не остаются кликабельными по всем старым вариантам сразу.
+ * Общий путь ответа на вопрос-блок:
+ * 1) у предыдущего ответа убирается «Изменить» (кнопка есть только у последнего ответа);
+ * 2) текущий вопрос сворачивается в «Вопрос: ответ»;
+ * 3) задаётся следующий вопрос.
  */
-async function finalizeChoice(ctx: BotContext, title: string, field: keyof ProfileData, option: ChoiceOption): Promise<void> {
-  try {
-    await ctx.editMessage({
-      text: `✅ **${title}**: ${option.label}`,
-      format: 'markdown',
-      attachments: [actionsKeyboard([{ label: '✏️ Изменить', payload: `edit:${String(field)}` }])],
-    });
-  } catch (error) {
-    console.error('Не удалось схлопнуть клавиатуру вопроса (не критично)', error);
+async function answer(
+  ctx: BotContext,
+  data: ProfileData,
+  field: keyof ProfileAnswers,
+  patch: Partial<ProfileData>,
+  next: Step,
+  options: AnswerOptions,
+): Promise<Transition> {
+  let updated: ProfileData = { ...data, ...patch };
+  if (data.lastAnswered && data.lastAnswered !== field) {
+    await editMessage(ctx, data.blockIds?.[data.lastAnswered], recapText(data.lastAnswered, data));
   }
+  await editMessage(ctx, data.currentQuestionId, recapText(field, updated), options.back ? backKeyboard() : undefined);
+  const extra = (await options.before?.(ctx, updated)) ?? {};
+  updated = { ...updated, ...extra };
+  const currentQuestionId = await ask(ctx, next, updated);
+  return advance(ctx, data, next, {
+    ...patch,
+    ...extra,
+    blockIds: { ...data.blockIds, [field]: data.currentQuestionId },
+    lastAnswered: options.back ? field : undefined,
+    currentQuestionId,
+  });
 }
 
-/** Сворачивает вопрос о городе. Id берём сохранённый: при ответе текстом или геопозицией
- * ctx.messageId указывает на сообщение пользователя, а не на вопрос. */
-async function finalizeCity(ctx: BotContext, promptId: string | undefined, city: string, fromGeo: boolean): Promise<void> {
-  if (!promptId) return;
-  try {
-    await ctx.api.editMessage(promptId, {
-      text: cityRecap(city, fromGeo),
-      format: 'markdown',
-      attachments: [actionsKeyboard([{ label: '✏️ Изменить', payload: 'edit:city' }])],
-    });
-  } catch (error) {
-    console.error('Не удалось свернуть вопрос о городе (не критично)', error);
-  }
+/** Простой вопрос с выбором одного варианта кнопкой. */
+function choiceStep(field: keyof ProfileAnswers, next: (data: ProfileData) => Step, extra?: Partial<AnswerOptions>): Step_ {
+  return async ({ ctx, state, data }) => {
+    const payload = ctx.callback?.payload;
+    const option = stepOptions(state.step, data).find((o) => o.id === payload);
+    if (!option) return sendService(ctx, data, invalidChoicePrompt());
+    await acknowledgeCallback(ctx);
+    const patch = { [field]: option.id } as Partial<ProfileData>;
+    return answer(ctx, data, field, patch, next({ ...data, ...patch }), { back: true, ...extra });
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Шаги сценария
+// ---------------------------------------------------------------------------
+
+const greet: Step_ = async ({ ctx }) => {
+  await sendText(ctx, GREETING);
+  return transition.goto('await_name');
+};
+
+const awaitName: Step_ = async ({ ctx, data }) => {
+  const name = readText(ctx);
+  if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
+  const updated = { ...data, name };
+  const currentQuestionId = await ask(ctx, 'await_study_stage', updated);
+  return advance(ctx, data, 'await_study_stage', { name, currentQuestionId });
+};
 
 type CityAnswer = { city: string; fromGeo: boolean } | { error: string };
 
-/** Разбирает ответ на вопрос о городе: кнопка быстрого города, геопозиция или (если разрешено) текст. */
-async function resolveCity(ctx: BotContext, allowText: boolean): Promise<CityAnswer | undefined> {
+/** Город: кнопка быстрого города, геопозиция или текст. */
+async function resolveCity(ctx: BotContext): Promise<CityAnswer | undefined> {
   const payload = ctx.callback?.payload;
   if (payload?.startsWith('city:')) {
     await acknowledgeCallback(ctx);
@@ -246,30 +435,143 @@ async function resolveCity(ctx: BotContext, allowText: boolean): Promise<CityAns
     if (distanceKm > MAX_CITY_DISTANCE_KM) return { error: cityTooFarPrompt(city.name, distanceKm) };
     return { city: city.name, fromGeo: true };
   }
-  if (!allowText) return undefined;
   const text = readText(ctx);
   return text ? { city: text, fromGeo: false } : undefined;
 }
 
-/** Читает выбранный вариант из нажатия кнопки, подтверждает колбэк и схлопывает вопрос. */
-async function readChoice(ctx: BotContext, field: keyof ProfileData, goal: Goal): Promise<ChoiceOption | undefined> {
-  const config = fieldConfig(field, goal);
-  if (!config) return undefined;
+const awaitCity: Step_ = async ({ ctx, data }) => {
+  const result = await resolveCity(ctx);
+  if (!result) return sendService(ctx, data, CITY_EMPTY_PROMPT);
+  if ('error' in result) return sendService(ctx, data, result.error);
+  return answer(ctx, data, 'city', { city: result.city, cityFromGeo: result.fromGeo }, 'await_field', { back: true });
+};
+
+/** После оплаты — промежуточное сообщение «50% пройдено» (один раз, при «Изменить» не повторяется). */
+async function sendMidpoint(ctx: BotContext, data: ProfileData): Promise<Partial<ProfileData>> {
+  if (data.midpointSent) return {};
+  await sendText(ctx, MIDPOINT_MESSAGE);
+  return { midpointSent: true };
+}
+
+/**
+ * Корректировка завышенных ожиданий (только трек «Работа»): мало опыта или 1–2 курс,
+ * а вилка от 80–150 тыс. и выше. В сценарии условие «Опыта нет», но на треке «Работа»
+ * такого варианта нет — ближайший эквивалент «0–1 год».
+ */
+export function needsSalaryCorrection(data: ProfileData): boolean {
+  if (data.goal !== 'job') return false;
+  const lowExperience = data.experience === 'exp_0_1' || data.studyStage === 'uni_1_2';
+  const highSalary = ['sal_80_150', 'sal_150_300', 'sal_300p'].includes(data.salary ?? '');
+  return lowExperience && highSalary;
+}
+
+/**
+ * Мотивация: ровно два варианта. Первый отмечается галочкой ✔️, после второго анкета идёт дальше сама.
+ * Повторное нажатие снимает отметку. Последний вопрос анкеты — без «Изменить».
+ */
+const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
+  const id = payload?.startsWith('multi:') ? payload.slice('multi:'.length) : undefined;
+  if (!id || !MOTIVATION_OPTIONS.some((o) => o.id === id)) return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
-  const match = config.options.find((option) => option.id === payload);
-  if (match) await finalizeChoice(ctx, config.title, field, match);
-  return match;
+
+  const draft = data.motivationDraft ?? [];
+  const motivationDraft = draft.includes(id) ? draft.filter((x) => x !== id) : [...draft, id];
+  if (motivationDraft.length < MOTIVATION_COUNT) {
+    const view = questionView('await_motivation', { ...data, motivationDraft });
+    await editMessage(ctx, data.currentQuestionId, view.text, view.keyboard);
+    return transition.stay({ motivationDraft });
+  }
+
+  const patch: Partial<ProfileData> = { motivation: motivationDraft, motivationDraft: undefined };
+  const next: Step = needsSalaryCorrection({ ...data, ...patch }) ? 'await_salary_correction' : 'await_verification';
+  return answer(ctx, data, 'motivation', patch, next, { back: false });
+};
+
+const awaitSalaryCorrection: Step_ = async ({ ctx, data }) => {
+  const payload = ctx.callback?.payload;
+  if (payload === 'keep_salary') {
+    await acknowledgeCallback(ctx);
+    return answer(ctx, data, 'salaryRevision', { salaryRevision: 'keep' }, 'await_verification', { back: false });
+  }
+  if (payload === 'fix_salary') {
+    await acknowledgeCallback(ctx);
+    const view = questionView('await_salary_fix', data);
+    await editMessage(ctx, data.currentQuestionId, view.text, view.keyboard);
+    return transition.goto('await_salary_fix');
+  }
+  return sendService(ctx, data, invalidChoicePrompt());
+};
+
+/** Новая сумма (до 150 000 ₽): обновляем и этот блок, и ранний блок с зарплатой выше по чату. */
+const awaitSalaryFix: Step_ = async ({ ctx, data }) => {
+  const option = JOB_SALARY_FIX_OPTIONS.find((o) => o.id === ctx.callback?.payload);
+  if (!option) return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  const patch: Partial<ProfileData> = { salary: option.id, salaryRevision: 'changed' };
+  await editMessage(ctx, data.blockIds?.salary, recapText('salary', { ...data, ...patch }));
+  return answer(ctx, data, 'salary', patch, 'await_verification', { back: false });
+};
+
+async function demoVerify(ctx: BotContext, methodLabel: string): Promise<void> {
+  await sendText(ctx, verificationProcessing(methodLabel));
+  await runDemoVerification();
+  await sendText(ctx, VERIFICATION_SUCCESS);
 }
 
-/** Читает свободный текст пользователя. */
-function readText(ctx: BotContext): string | undefined {
-  const text = ctx.message?.body.text?.trim();
-  return text && text.length > 0 ? text : undefined;
+const awaitVerification: Step_ = async ({ ctx, data }) => {
+  const option = VERIFICATION_OPTIONS.find((o) => o.id === ctx.callback?.payload);
+  if (!option) return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  const patch: Partial<ProfileData> = { verificationMethod: option.id };
+  if (option.id === 'verify_manual') {
+    return answer(ctx, data, 'verificationMethod', patch, 'await_inn', { back: false });
+  }
+  return answer(ctx, data, 'verificationMethod', patch, 'await_contact', {
+    back: false,
+    before: async () => {
+      await demoVerify(ctx, option.label);
+      return { verified: true };
+    },
+  });
+};
+
+const awaitInn: Step_ = async ({ ctx, data }) => {
+  const id = readText(ctx);
+  if (!id || !isValidIdFormat(id)) return sendService(ctx, data, MANUAL_ID_INVALID);
+  await deleteServiceMessages(ctx, data);
+  await demoVerify(ctx, 'формат ИНН / СНИЛС');
+  const updated = { ...data, verified: true };
+  const currentQuestionId = await ask(ctx, 'await_contact', updated);
+  return transition.goto('await_contact', { verified: true, currentQuestionId, serviceMessageIds: [] });
+};
+
+/** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
+function profileAnswers(data: ProfileData): ProfileAnswers {
+  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, verified, contact } = data;
+  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, verified, contact };
 }
 
-const REQUIRED_FIELDS: Array<keyof ProfileData> = [
-  'name',
+const awaitContact: Step_ = async ({ ctx, data }) => {
+  const option = CONTACT_OPTIONS.find((o) => o.id === ctx.callback?.payload);
+  if (!option) return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  return answer(ctx, data, 'contact', { contact: option.id }, 'await_final_action', {
+    back: false,
+    before: async (_ctx, updated) => {
+      submitToLaborExchangeMock(ctx.chatId ?? 0, profileAnswers(updated));
+      return { completedAt: Date.now() };
+    },
+  });
+};
+
+export async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
+  const offers = matchVacancies(data);
+  const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
+  await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
+}
+
+const PROFILE_FIELDS: Array<keyof ProfileAnswers> = [
   'studyStage',
   'goal',
   'city',
@@ -281,273 +583,111 @@ const REQUIRED_FIELDS: Array<keyof ProfileData> = [
   'relocation',
   'overtime',
   'motivation',
+  'contact',
 ];
 
-function computeCompleteness(data: ProfileData): number {
-  const filled = REQUIRED_FIELDS.filter((field) => Boolean(data[field])).length;
-  return Math.round((filled / REQUIRED_FIELDS.length) * 100);
-}
-
-async function sendFinalSummary(ctx: BotContext, data: ProfileData): Promise<void> {
-  const offers = matchVacancies(data);
-  await ctx.reply(finalSummary(computeCompleteness(data), offers.length), {
-    format: 'markdown',
-    attachments: [
-      actionsKeyboard([
-        { label: FINAL_BUTTON_VERIFY, payload: 'verify' },
-        { label: FINAL_BUTTON_OFFERS, payload: 'offers' },
-      ]),
-    ],
-  });
-}
-
-/** Шаг запуска сценария: приветствие + запрос имени (объединение обоих черновиков). */
-const greet: Step_ = async ({ ctx }) => {
-  await sendText(ctx, GREETING);
-  return transition.goto('await_name');
-};
-
-const awaitName: Step_ = async ({ ctx, data }) => {
-  const name = readText(ctx);
-  if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
-  await sendChoice(ctx, studyStagePrompt(name), STUDY_STAGE_OPTIONS);
-  return advance(ctx, data, 'await_study_stage', { name });
-};
-
-const awaitStudyStage: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'studyStage', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoiceRow(ctx, GOAL_PROMPT, GOAL_OPTIONS);
-  return advance(ctx, data, 'await_goal', { studyStage: match.id });
-};
-
-const awaitGoal: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'goal', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  const cityPromptId = await sendCityPrompt(ctx, cityPrompt());
-  return advance(ctx, data, 'await_city', { goal: match.id as Goal, cityPromptId });
-};
-
-const awaitCity: Step_ = async ({ ctx, data }) => {
-  const answer = await resolveCity(ctx, true);
-  if (!answer) return sendService(ctx, data, CITY_EMPTY_PROMPT);
-  if ('error' in answer) return sendService(ctx, data, answer.error);
-  await finalizeCity(ctx, data.cityPromptId, answer.city, answer.fromGeo);
-  await sendChoice(ctx, fieldPrompt(goalOf(data)), FIELD_OPTIONS);
-  return advance(ctx, data, 'await_field', { city: answer.city });
-};
-
-const awaitField: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'field', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoiceAuto(ctx, experiencePrompt(goalOf(data)), experienceOptions(goalOf(data)));
-  return advance(ctx, data, 'await_experience', { field: match.id });
-};
-
-const awaitExperience: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'experience', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoice(ctx, employmentPrompt(), EMPLOYMENT_OPTIONS);
-  return advance(ctx, data, 'await_employment', { experience: match.id });
-};
-
-const awaitEmployment: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'employment', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoiceAuto(ctx, salaryPrompt(goalOf(data)), salaryOptions(goalOf(data)));
-  return advance(ctx, data, 'await_salary', { employment: match.id });
-};
-
-const awaitSalary: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'salary', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoice(ctx, WORK_FORMAT_PROMPT, WORK_FORMAT_OPTIONS);
-  return advance(ctx, data, 'await_work_format', { salary: match.id });
-};
-
-const awaitWorkFormat: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'workFormat', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoiceRow(ctx, RELOCATION_PROMPT, RELOCATION_OPTIONS);
-  return advance(ctx, data, 'await_relocation', { workFormat: match.id });
-};
-
-const awaitRelocation: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'relocation', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoice(ctx, OVERTIME_PROMPT, OVERTIME_OPTIONS);
-  return advance(ctx, data, 'await_overtime', { relocation: match.id });
-};
-
-const awaitOvertime: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'overtime', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendChoice(ctx, motivationPrompt(goalOf(data)), MOTIVATION_OPTIONS);
-  return advance(ctx, data, 'await_motivation', { overtime: match.id });
-};
-
-/** После мотивации — проверка «опыт + оплата» (только для работы), затем итог. */
-const awaitMotivation: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'motivation', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  if (data.goal === 'job' && isSalaryInflated(data.experience, data.salary)) {
-    const prompt = salaryRevisionPrompt(
-      optionLabel(JOB_EXPERIENCE_OPTIONS, data.experience),
-      optionLabel(JOB_SALARY_OPTIONS, data.salary),
-    );
-    await sendChoiceRow(ctx, prompt, SALARY_REVISION_OPTIONS);
-    return advance(ctx, data, 'await_salary_revision', { motivation: match.id });
-  }
-  await sendFinalSummary(ctx, { ...data, motivation: match.id });
-  return advance(ctx, data, 'await_final_action', { motivation: match.id });
-};
-
-const awaitSalaryRevision: Step_ = async ({ ctx, data }) => {
-  const match = await readChoice(ctx, 'salaryRevision', goalOf(data));
-  if (!match) return sendService(ctx, data, invalidChoicePrompt());
-  await sendFinalSummary(ctx, { ...data, salaryRevision: match.id });
-  return advance(ctx, data, 'await_final_action', { salaryRevision: match.id });
-};
-
-/** Показывает подобранные демо-предложения. Переиспользуется на шагах финала и ожидания ИНН —
- * кнопка «Посмотреть предложения» на итоговом сообщении остаётся кликабельной и после перехода
- * к вводу ИНН, поэтому оба шага должны уметь её обработать. */
-async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
-  const offers = matchVacancies(data);
-  const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
-  await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
+export function profileCard(data: ProfileData): string {
+  const lines = PROFILE_FIELDS.map((field) => `**${fieldTitle(field, data)}:** ${answerLabel(field, data)}`);
+  const status = data.verified ? '✅ подтверждён (демо)' : '⏳ не подтверждён';
+  return `# 🪪 Мой профиль\n\n**Имя:** ${data.name ?? '—'}\n${lines.join('\n')}\n\n**Статус:** ${status}`;
 }
 
 const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   await acknowledgeCallback(ctx);
-  if (payload === 'verify') {
-    await sendText(ctx, VERIFY_INN_PROMPT);
-    return transition.goto('await_inn');
+  if (payload === 'profile') {
+    await sendText(ctx, profileCard(data));
+    return transition.stay();
   }
   if (payload === 'offers') {
     await sendOffers(ctx, data);
-    return transition.stay();
+    return transition.stay({ offersViewed: true });
   }
   return transition.stay();
 };
 
-const awaitInn: Step_ = async ({ ctx, data }) => {
-  // Кнопка «Посмотреть предложения» на итоговом сообщении не исчезает — если пользователь
-  // передумал и нажал её вместо ввода ИНН, показываем предложения и остаёмся на этом шаге,
-  // а не ругаемся на «невалидный ИНН» (это и была причина бага).
-  if (ctx.has('message_callback')) {
-    const payload = ctx.callback?.payload;
-    await acknowledgeCallback(ctx);
-    if (payload === 'offers') {
-      await sendOffers(ctx, data);
-    } else {
-      await sendText(ctx, VERIFY_INN_PROMPT);
-    }
-    return transition.stay();
-  }
-  const inn = readText(ctx);
-  if (!inn || !isValidInnFormat(inn)) return sendService(ctx, data, VERIFY_INN_INVALID);
-  await deleteServiceMessages(ctx, data);
-  await sendText(ctx, VERIFY_PROCESSING);
-  await runDemoVerification();
-  const { cityPromptId: _cityPromptId, serviceMessageIds: _serviceMessageIds, ...profile } = data;
-  submitToLaborExchangeMock(ctx.chatId ?? 0, profile);
-  await sendText(ctx, verifySuccess());
-  return transition.complete();
-};
+// ---------------------------------------------------------------------------
+// «Изменить» и «Вернуться» из напоминаний
+// ---------------------------------------------------------------------------
 
 /**
- * Смена цели (стажировка ↔ работа) задним числом: варианты опыта и оплаты у веток разные,
- * поэтому старые ответы сбрасываются и вопросы присылаются заново — уже с вариантами новой ветки.
- * Если один из этих вопросов сейчас текущий, его тоже переспрашиваем: на экране висят варианты старой ветки.
+ * «Изменить» у последнего ответа: текущий вопрос удаляется, свёрнутый блок раскрывается обратно
+ * в вопрос с вариантами. После нового ответа блок снова сворачивается, а удалённый вопрос
+ * приходит заново — это делает обычный `answer`.
  */
-async function resetBranchAnswers(ctx: BotContext, step: Step, data: ProfileData, newGoal: Goal): Promise<Partial<ProfileData>> {
-  const patch: Partial<ProfileData> = {};
-  for (const { field, step: fieldStep } of BRANCH_FIELDS) {
-    if (!data[field] && step !== fieldStep) continue;
-    patch[field] = undefined;
-    const config = fieldConfig(field, newGoal);
-    if (config) await sendChoiceAuto(ctx, `✏️ **Уточни заново: ${config.title}**\n\nЦель изменилась — варианты другие:`, config.options);
-  }
-  return patch;
+async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
+  await acknowledgeCallback(ctx);
+  const field = data.lastAnswered;
+  const blockId = field ? data.blockIds?.[field] : undefined;
+  const step = field ? FIELD_STEP[field] : undefined;
+  if (!field || !blockId || !step || ctx.messageId !== blockId) return transition.stay();
+  await deleteMessage(ctx, data.currentQuestionId);
+  await deleteServiceMessages(ctx, data);
+  const view = questionView(step, data);
+  await editMessage(ctx, blockId, view.text, view.keyboard);
+  return transition.goto(step, {
+    currentQuestionId: blockId,
+    lastAnswered: undefined,
+    motivationDraft: undefined,
+    serviceMessageIds: [],
+  });
 }
 
-/**
- * Обработка кнопок из сообщений выше по чату. Кнопки старых сообщений в MAX остаются
- * кликабельными и после того, как чат ушёл вперёд — без этого перехвата клик попадал бы
- * в текущий шаг и выглядел как «выбери один из вариантов ниже».
- */
-async function interceptStale(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition | undefined> {
-  // Геопозиция, отправленная не на шаге города (например, после «✏️ Изменить» у города).
-  if (step !== 'await_city' && data.cityPromptId && ctx.location) {
-    const answer = await resolveCity(ctx, false);
-    if (!answer) return undefined;
-    if ('error' in answer) return sendService(ctx, data, answer.error);
-    await finalizeCity(ctx, data.cityPromptId, answer.city, answer.fromGeo);
-    return transition.stay({ city: answer.city });
+/** Кнопка из напоминания: переспрашиваем текущий вопрос внизу чата (старый удаляем) или показываем подборку. */
+async function resume(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition> {
+  await acknowledgeCallback(ctx);
+  if (step === 'await_final_action') {
+    await sendOffers(ctx, data);
+    return transition.stay({ offersViewed: true });
   }
-
-  if (!ctx.has('message_callback')) return undefined;
-  const payload = ctx.callback?.payload;
-
-  if (payload === 'edit:city') {
-    await acknowledgeCallback(ctx);
-    const cityPromptId = await sendCityPrompt(ctx, CITY_EDIT_PROMPT);
-    return transition.stay({ cityPromptId });
-  }
-
-  if (payload?.startsWith('city:') && step !== 'await_city') {
-    const answer = await resolveCity(ctx, false);
-    if (!answer || 'error' in answer) return undefined;
-    await finalizeCity(ctx, ctx.messageId, answer.city, false);
-    return transition.stay({ city: answer.city });
-  }
-
-  if (payload?.startsWith('edit:')) {
-    const config = fieldConfig(payload.slice('edit:'.length) as keyof ProfileData, goalOf(data));
-    if (!config) return undefined;
-    await acknowledgeCallback(ctx);
-    await sendChoiceAuto(ctx, `✏️ **Изменить: ${config.title}**\n\nВыбери новый вариант:`, config.options);
+  if (!BLOCK_STEPS.has(step)) {
+    await ask(ctx, step, data);
     return transition.stay();
   }
+  await deleteMessage(ctx, data.currentQuestionId);
+  const currentQuestionId = await ask(ctx, step, data);
+  return transition.stay({ currentQuestionId });
+}
 
-  const match = findChoiceField(payload);
-  if (!match) return undefined;
-  if (match.config.field === STEP_FIELD[step]) return undefined;
-  // Кнопка опыта/оплаты от другой ветки (осталась после смены цели) — не применяем.
-  if (match.config.goal && match.config.goal !== goalOf(data)) return undefined;
-  await acknowledgeCallback(ctx);
-  await finalizeChoice(ctx, match.config.title, match.config.field, match.option);
-  const patch: Partial<ProfileData> = { [match.config.field]: match.option.id };
-  if (match.config.field === 'goal' && match.option.id !== data.goal) {
-    Object.assign(patch, await resetBranchAnswers(ctx, step, data, match.option.id as Goal));
+async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition | undefined> {
+  if (!ctx.has('message_callback')) return undefined;
+  const payload = ctx.callback?.payload;
+  if (payload === 'back') return goBack(ctx, data);
+  if (payload === 'resume') return resume(ctx, step, data);
+  if (payload === 'offers' && step !== 'await_final_action') {
+    await acknowledgeCallback(ctx);
+    await sendOffers(ctx, data);
+    return transition.stay({ offersViewed: true });
   }
-  return transition.stay(patch);
+  return undefined;
 }
 
 export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   id: 'career-navigator',
   initialStep: 'greet',
-  idleTimeoutMs: 30 * 60 * 1000,
+  // Долгий таймаут: напоминания приходят через 3 минуты и через час, а кнопки финала должны работать и позже.
+  idleTimeoutMs: 7 * 24 * 60 * 60 * 1000,
   createData: () => ({}),
-  intercept: ({ ctx, state, data }) => interceptStale(ctx, state.step, data),
+  intercept: ({ ctx, state, data }) => intercept(ctx, state.step, data),
   steps: {
     greet,
     await_name: awaitName,
-    await_study_stage: awaitStudyStage,
-    await_goal: awaitGoal,
+    await_study_stage: choiceStep('studyStage', () => 'await_goal'),
+    await_goal: choiceStep('goal', () => 'await_city'),
     await_city: awaitCity,
-    await_field: awaitField,
-    await_experience: awaitExperience,
-    await_employment: awaitEmployment,
-    await_salary: awaitSalary,
-    await_work_format: awaitWorkFormat,
-    await_relocation: awaitRelocation,
-    await_overtime: awaitOvertime,
+    await_field: choiceStep('field', () => 'await_experience'),
+    await_experience: choiceStep('experience', () => 'await_employment'),
+    await_employment: choiceStep('employment', () => 'await_salary'),
+    await_salary: choiceStep('salary', () => 'await_work_format', { before: sendMidpoint }),
+    await_work_format: choiceStep('workFormat', () => 'await_relocation'),
+    await_relocation: choiceStep('relocation', () => 'await_overtime'),
+    await_overtime: choiceStep('overtime', () => 'await_motivation'),
     await_motivation: awaitMotivation,
-    await_salary_revision: awaitSalaryRevision,
-    await_final_action: awaitFinalAction,
+    await_salary_correction: awaitSalaryCorrection,
+    await_salary_fix: awaitSalaryFix,
+    await_verification: awaitVerification,
     await_inn: awaitInn,
+    await_contact: awaitContact,
+    await_final_action: awaitFinalAction,
   },
 });

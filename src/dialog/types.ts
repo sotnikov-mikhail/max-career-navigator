@@ -2,7 +2,8 @@ import type { Context, ScenarioController, ScenarioSession } from '@maxhub/max-b
 
 export type Goal = 'internship' | 'job';
 
-export interface ProfileData {
+/** Ответы пользователя — то, что уходит в (демо) заявку. */
+export interface ProfileAnswers {
   name?: string;
   studyStage?: string;
   goal?: Goal;
@@ -16,16 +17,36 @@ export interface ProfileData {
   workFormat?: string;
   relocation?: string;
   overtime?: string;
-  motivation?: string;
-  /** Спрашивается только для работы, если ожидания по зарплате выше типичных для такого опыта. */
-  salaryRevision?: string;
+  /** До двух вариантов. */
+  motivation?: string[];
+  /** Только для работы, если сработала корректировка завышенных ожиданий. */
+  salaryRevision?: 'keep' | 'changed';
+  verificationMethod?: string;
   verified?: boolean;
-  verifiedAt?: number;
-  /** Служебное: id сообщения с вопросом о городе — чтобы свернуть его после ответа текстом/геопозицией. */
-  cityPromptId?: string;
-  /** Служебное: id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */
-  serviceMessageIds?: string[];
+  contact?: string;
 }
+
+/** Служебное состояние диалога — в заявку не попадает. */
+export interface DialogState {
+  /** id сообщения с текущим вопросом — удаляется при «Изменить», сворачивается после ответа. */
+  currentQuestionId?: string;
+  /** id свёрнутого блока «вопрос: ответ» по каждому полю. */
+  blockIds?: Partial<Record<keyof ProfileAnswers, string>>;
+  /** Последний ответ, у которого сейчас висит кнопка «Изменить». */
+  lastAnswered?: keyof ProfileAnswers;
+  /** Выбор в мультивыборе мотивации до нажатия «Готово». */
+  motivationDraft?: string[];
+  cityFromGeo?: boolean;
+  midpointSent?: boolean;
+  /** id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */
+  serviceMessageIds?: string[];
+  lastActivityAt?: number;
+  remindersSent?: string[];
+  offersViewed?: boolean;
+  completedAt?: number;
+}
+
+export type ProfileData = ProfileAnswers & DialogState;
 
 export type Step =
   | 'greet'
@@ -41,9 +62,12 @@ export type Step =
   | 'await_relocation'
   | 'await_overtime'
   | 'await_motivation'
-  | 'await_salary_revision'
-  | 'await_final_action'
-  | 'await_inn';
+  | 'await_salary_correction'
+  | 'await_salary_fix'
+  | 'await_verification'
+  | 'await_inn'
+  | 'await_contact'
+  | 'await_final_action';
 
 export interface BotSession extends ScenarioSession {}
 

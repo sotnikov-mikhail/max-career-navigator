@@ -8,6 +8,15 @@ export function isValidInnFormat(input: string): boolean {
   return /^\d{10}$/.test(digitsOnly) || /^\d{12}$/.test(digitsOnly);
 }
 
+/** СНИЛС: 11 цифр, допускаются пробелы и дефисы (формат 123-456-789 01). */
+export function isValidSnilsFormat(input: string): boolean {
+  return /^\d{11}$/.test(input.replace(/[\s-]/g, ''));
+}
+
+export function isValidIdFormat(input: string): boolean {
+  return isValidInnFormat(input) || isValidSnilsFormat(input);
+}
+
 export interface DemoVerificationResult {
   verified: true;
   verifiedAt: number;

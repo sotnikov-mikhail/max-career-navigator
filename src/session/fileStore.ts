@@ -22,6 +22,10 @@ export class FileSessionStore<T> implements SyncSessionStore<T> {
     }
   }
 
+  keys(): string[] {
+    return [...this.entries.keys()];
+  }
+
   get(key: string): T | undefined {
     return this.entries.get(key);
   }

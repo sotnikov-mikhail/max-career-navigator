@@ -2,20 +2,235 @@
   "synthetic": true,
   "note": "Тестовый (синтетический) датасет для демо-подбора предложений. Не является реальной базой вакансий или стажировок.",
   "items": [
-    { "id": "it-01", "title": "Стажёр Frontend-разработчик", "org": "ООО «Цифровые решения»", "city": "Москва", "field": "it", "goal": "internship", "workFormat": "hybrid", "pay": "35 000 ₽/мес" },
-    { "id": "it-02", "title": "Junior Python-разработчик", "org": "СтартапХаб", "city": "Санкт-Петербург", "field": "it", "goal": "job", "workFormat": "remote", "pay": "70 000 ₽/мес" },
-    { "id": "it-03", "title": "Стажёр QA-инженер", "org": "ТехноСервис", "city": "Казань", "field": "it", "goal": "internship", "workFormat": "remote", "pay": "25 000 ₽/мес" },
-    { "id": "eng-01", "title": "Стажёр-конструктор", "org": "Завод «Прогресс»", "city": "Екатеринбург", "field": "engineering", "goal": "internship", "workFormat": "onsite", "pay": "30 000 ₽/мес" },
-    { "id": "eng-02", "title": "Инженер-технолог (junior)", "org": "ПромМаш", "city": "Новосибирск", "field": "engineering", "goal": "job", "workFormat": "onsite", "pay": "60 000 ₽/мес" },
-    { "id": "econ-01", "title": "Стажёр-аналитик", "org": "Банк «Развитие»", "city": "Москва", "field": "economics", "goal": "internship", "workFormat": "hybrid", "pay": "40 000 ₽/мес" },
-    { "id": "econ-02", "title": "Junior финансовый аналитик", "org": "ГрупКонсалт", "city": "Санкт-Петербург", "field": "economics", "goal": "job", "workFormat": "hybrid", "pay": "65 000 ₽/мес" },
-    { "id": "hum-01", "title": "Стажёр-методист", "org": "Образовательный центр «Апекс»", "city": "Казань", "field": "humanities", "goal": "internship", "workFormat": "onsite", "pay": "28 000 ₽/мес" },
-    { "id": "hum-02", "title": "Junior SMM-редактор", "org": "МедиаГрупп", "city": "Москва", "field": "humanities", "goal": "job", "workFormat": "remote", "pay": "50 000 ₽/мес" },
-    { "id": "srv-01", "title": "Стажёр отдела логистики", "org": "ЛогистикСервис", "city": "Новосибирск", "field": "service", "goal": "internship", "workFormat": "onsite", "pay": "27 000 ₽/мес" },
-    { "id": "srv-02", "title": "Специалист поддержки клиентов", "org": "КлиентСервис 24", "city": "Екатеринбург", "field": "service", "goal": "job", "workFormat": "remote", "pay": "45 000 ₽/мес" },
-    { "id": "any-01", "title": "Стажёр-универсал (ротация по отделам)", "org": "Молодёжный кадровый центр", "city": "Москва", "field": "undecided", "goal": "internship", "workFormat": "hybrid", "pay": "30 000 ₽/мес" },
-    { "id": "it-04", "title": "Стажёр Data-аналитик", "org": "Цифровые решения", "city": "Санкт-Петербург", "field": "it", "goal": "internship", "workFormat": "remote", "pay": "32 000 ₽/мес" },
-    { "id": "econ-03", "title": "Стажёр бухгалтерии", "org": "ФинГрупп", "city": "Казань", "field": "economics", "goal": "internship", "workFormat": "onsite", "pay": "26 000 ₽/мес" },
-    { "id": "srv-03", "title": "Junior менеджер по работе с клиентами", "org": "СервисПлюс", "city": "Москва", "field": "service", "goal": "job", "workFormat": "hybrid", "pay": "55 000 ₽/мес" }
+    {
+      "id": "it-01",
+      "title": "Стажёр Frontend-разработчик",
+      "org": "ООО «Цифровые решения»",
+      "city": "Москва",
+      "field": "it",
+      "goal": "internship",
+      "workFormat": "hybrid",
+      "pay": "35 000 ₽/мес"
+    },
+    {
+      "id": "it-02",
+      "title": "Junior Python-разработчик",
+      "org": "СтартапХаб",
+      "city": "Санкт-Петербург",
+      "field": "it",
+      "goal": "job",
+      "workFormat": "remote",
+      "pay": "70 000 ₽/мес"
+    },
+    {
+      "id": "it-03",
+      "title": "Стажёр QA-инженер",
+      "org": "ТехноСервис",
+      "city": "Казань",
+      "field": "it",
+      "goal": "internship",
+      "workFormat": "remote",
+      "pay": "25 000 ₽/мес"
+    },
+    {
+      "id": "eng-01",
+      "title": "Стажёр-конструктор",
+      "org": "Завод «Прогресс»",
+      "city": "Краснодар",
+      "field": "engineering",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "30 000 ₽/мес"
+    },
+    {
+      "id": "eng-02",
+      "title": "Инженер-технолог (junior)",
+      "org": "ПромМаш",
+      "city": "Новосибирск",
+      "field": "engineering",
+      "goal": "job",
+      "workFormat": "onsite",
+      "pay": "60 000 ₽/мес"
+    },
+    {
+      "id": "econ-01",
+      "title": "Стажёр-аналитик",
+      "org": "Банк «Развитие»",
+      "city": "Москва",
+      "field": "economics",
+      "goal": "internship",
+      "workFormat": "hybrid",
+      "pay": "40 000 ₽/мес"
+    },
+    {
+      "id": "econ-02",
+      "title": "Junior финансовый аналитик",
+      "org": "ГрупКонсалт",
+      "city": "Санкт-Петербург",
+      "field": "economics",
+      "goal": "job",
+      "workFormat": "hybrid",
+      "pay": "65 000 ₽/мес"
+    },
+    {
+      "id": "hum-01",
+      "title": "Стажёр-методист",
+      "org": "Образовательный центр «Апекс»",
+      "city": "Казань",
+      "field": "humanities",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "28 000 ₽/мес"
+    },
+    {
+      "id": "hum-02",
+      "title": "Junior SMM-редактор",
+      "org": "МедиаГрупп",
+      "city": "Москва",
+      "field": "humanities",
+      "goal": "job",
+      "workFormat": "remote",
+      "pay": "50 000 ₽/мес"
+    },
+    {
+      "id": "srv-01",
+      "title": "Стажёр отдела логистики",
+      "org": "ЛогистикСервис",
+      "city": "Новосибирск",
+      "field": "service",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "27 000 ₽/мес"
+    },
+    {
+      "id": "srv-02",
+      "title": "Специалист поддержки клиентов",
+      "org": "КлиентСервис 24",
+      "city": "Краснодар",
+      "field": "service",
+      "goal": "job",
+      "workFormat": "remote",
+      "pay": "45 000 ₽/мес"
+    },
+    {
+      "id": "any-01",
+      "title": "Стажёр-универсал (ротация по отделам)",
+      "org": "Молодёжный кадровый центр",
+      "city": "Москва",
+      "field": "undecided",
+      "goal": "internship",
+      "workFormat": "hybrid",
+      "pay": "30 000 ₽/мес"
+    },
+    {
+      "id": "it-04",
+      "title": "Стажёр Data-аналитик",
+      "org": "Цифровые решения",
+      "city": "Санкт-Петербург",
+      "field": "it",
+      "goal": "internship",
+      "workFormat": "remote",
+      "pay": "32 000 ₽/мес"
+    },
+    {
+      "id": "econ-03",
+      "title": "Стажёр бухгалтерии",
+      "org": "ФинГрупп",
+      "city": "Казань",
+      "field": "economics",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "26 000 ₽/мес"
+    },
+    {
+      "id": "srv-03",
+      "title": "Junior менеджер по работе с клиентами",
+      "org": "СервисПлюс",
+      "city": "Москва",
+      "field": "service",
+      "goal": "job",
+      "workFormat": "hybrid",
+      "pay": "55 000 ₽/мес"
+    },
+    {
+      "id": "mkt-01",
+      "title": "Стажёр SMM-специалист",
+      "org": "Агентство «Сигнал»",
+      "city": "Краснодар",
+      "field": "marketing",
+      "goal": "internship",
+      "workFormat": "hybrid",
+      "pay": "25 000 ₽/мес"
+    },
+    {
+      "id": "mkt-02",
+      "title": "Junior маркетолог",
+      "org": "ТоргСеть",
+      "city": "Москва",
+      "field": "marketing",
+      "goal": "job",
+      "workFormat": "hybrid",
+      "pay": "60 000 ₽/мес"
+    },
+    {
+      "id": "law-01",
+      "title": "Помощник юриста (стажировка)",
+      "org": "Юридическая фирма «Право»",
+      "city": "Казань",
+      "field": "law",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "25 000 ₽/мес"
+    },
+    {
+      "id": "law-02",
+      "title": "Специалист по документообороту",
+      "org": "ГосСервисЦентр",
+      "city": "Санкт-Петербург",
+      "field": "law",
+      "goal": "job",
+      "workFormat": "onsite",
+      "pay": "50 000 ₽/мес"
+    },
+    {
+      "id": "des-01",
+      "title": "Стажёр графический дизайнер",
+      "org": "Студия «Контур»",
+      "city": "Москва",
+      "field": "design",
+      "goal": "internship",
+      "workFormat": "remote",
+      "pay": "30 000 ₽/мес"
+    },
+    {
+      "id": "des-02",
+      "title": "Junior UI/UX дизайнер",
+      "org": "ПродуктЛаб",
+      "city": "Новосибирск",
+      "field": "design",
+      "goal": "job",
+      "workFormat": "remote",
+      "pay": "70 000 ₽/мес"
+    },
+    {
+      "id": "med-01",
+      "title": "Стажёр-лаборант",
+      "org": "Клиника «Здоровье»",
+      "city": "Краснодар",
+      "field": "health",
+      "goal": "internship",
+      "workFormat": "onsite",
+      "pay": "28 000 ₽/мес"
+    },
+    {
+      "id": "med-02",
+      "title": "Младший научный сотрудник",
+      "org": "НИИ биотехнологий",
+      "city": "Новосибирск",
+      "field": "health",
+      "goal": "job",
+      "workFormat": "onsite",
+      "pay": "55 000 ₽/мес"
+    }
   ]
 }
