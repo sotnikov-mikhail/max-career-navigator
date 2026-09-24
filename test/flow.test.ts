@@ -214,7 +214,7 @@ test('мотивация: первый выбор — галочка слева 
   assert.equal(result.type, 'stay');
   assert.deepEqual(dataOf(result).motivationDraft, ['growth']);
   assert.ok(edits[0].text.includes('1 из 2'));
-  assert.ok(edits[0].keyboardText.includes('✔️ 🚀 Карьерный рост'));
+  assert.ok(edits[0].keyboardText.includes('✅ 🚀 Карьерный рост'));
 });
 
 test('мотивация: повторное нажатие снимает выбор', async () => {

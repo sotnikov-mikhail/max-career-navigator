@@ -31,11 +31,11 @@ export function cityKeyboard(cities: Array<{ id: string; name: string }>) {
   return Keyboard.inlineKeyboard(rows);
 }
 
-/** Мультивыбор: выбранные варианты отмечены ✔️ слева. Payload варианта — `multi:<id>`. */
+/** Мультивыбор: выбранные варианты отмечены ✅ слева. Payload варианта — `multi:<id>`. */
 export function multiKeyboard(options: ChoiceOption[], selected: string[]) {
   return Keyboard.inlineKeyboard(
     options.map((option) => [
-      Keyboard.button.callback(selected.includes(option.id) ? `✔️ ${option.label}` : option.label, `multi:${option.id}`),
+      Keyboard.button.callback(selected.includes(option.id) ? `✅ ${option.label}` : option.label, `multi:${option.id}`),
     ]),
   );
 }
