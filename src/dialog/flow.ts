@@ -447,7 +447,7 @@ const awaitCity: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'city', { city: result.city, cityFromGeo: result.fromGeo }, 'await_field', { back: true });
 };
 
-const MIDPOINT_PAUSE_MS = 5000;
+const MIDPOINT_PAUSE_MS = 3500;
 
 /** После оплаты — промежуточное сообщение «50% пройдено» (один раз, при «Изменить» не повторяется). */
 async function sendMidpoint(ctx: BotContext, data: ProfileData): Promise<Partial<ProfileData>> {
