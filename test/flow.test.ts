@@ -329,6 +329,27 @@ test('ручной ввод: сначала паспорт (обязательн
   assert.equal(dataOf(good.result).verified, true);
 });
 
+test('после ручной проверки подсказки шагов удаляются (сообщения пользователя MAX удалять не даёт)', async () => {
+  const { result, deleted, replies } = await runStep(
+    'await_inn',
+    { passportProvided: true, manualMessageIds: ['passport-prompt'], currentQuestionId: 'inn-prompt' },
+    { text: '1234567890', messageId: 'inn-text' },
+  );
+  assert.equal(stepOf(result), 'await_contact');
+  for (const id of ['passport-prompt', 'inn-prompt']) assert.ok(deleted.includes(id), id);
+  assert.ok(!deleted.includes('inn-text'));
+  // «Имитируем проверку» тоже удаляется, «Профиль подтверждён» не отправляется
+  assert.ok(deleted.includes('m1'));
+  assert.ok(!replies.some((r) => r.includes('Профиль подтверждён')));
+});
+
+test('Госуслуги: сообщение о проверке удаляется, в чате остаётся только блок «✅ Верификация»', async () => {
+  const { deleted, replies, edits } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_gosuslugi' });
+  assert.ok(deleted.includes('m1'));
+  assert.ok(!replies.some((r) => r.includes('Профиль подтверждён')));
+  assert.ok(edits.find((e) => e.id === 'v')!.text.startsWith('✅ **Верификация:**'));
+});
+
 test('паспорт по фото: после разворота 2–3 бот ждёт разворот 4–5', async () => {
   const first = await runStep('await_passport', {}, { photos: 1 });
   assert.equal(first.result.type, 'stay');

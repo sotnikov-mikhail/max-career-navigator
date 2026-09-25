@@ -43,7 +43,6 @@ import {
   STUDY_STAGE_OPTIONS,
   VERIFICATION_OPTIONS,
   VERIFICATION_PROMPT,
-  VERIFICATION_SUCCESS,
   WORK_FORMAT_OPTIONS,
   WORK_FORMAT_PROMPT,
   cityTooFarPrompt,
@@ -98,7 +97,7 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
 ]);
 
 /** Шаги, чьё сообщение запоминается, чтобы удалить его («Изменить», напоминание, «Продолжить»). */
-const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_midpoint']);
+const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_midpoint', 'await_passport', 'await_inn']);
 
 /** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
 const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
@@ -311,10 +310,27 @@ async function editMessage(ctx: BotContext, messageId: string | undefined, text:
   }
 }
 
+/** MAX: не больше двух удалений в секунду в одном диалоге — между удалениями держим паузу. */
+const DELETE_INTERVAL_MS = 550;
+const lastDeleteAt = new Map<number, number>();
+
+async function throttleDelete(chatId: number | undefined | null): Promise<void> {
+  if (chatId == null) return;
+  const wait = (lastDeleteAt.get(chatId) ?? 0) + DELETE_INTERVAL_MS - Date.now();
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  lastDeleteAt.set(chatId, Date.now());
+}
+
+/**
+ * Удаляет сообщение бота. В личном диалоге MAX разрешает удалять только сообщения самого бота.
+ * API при отказе может ответить 200 с success: false — такие случаи логируем, сценарий не ломаем.
+ */
 async function deleteMessage(ctx: BotContext, messageId: string | undefined): Promise<void> {
   if (!messageId) return;
+  await throttleDelete(ctx.chatId);
   try {
-    await ctx.deleteMessage(messageId);
+    const result = await ctx.deleteMessage(messageId);
+    if (result && result.success === false) console.error('MAX отказал в удалении сообщения', messageId, result.message);
   } catch (error) {
     console.error('Не удалось удалить сообщение (не критично)', error);
   }
@@ -531,10 +547,12 @@ const awaitSalaryFix: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'salary', patch, 'await_verification', { back: false });
 };
 
+/** «⏳ Имитируем проверку…» видно только пока идёт проверка, потом сообщение удаляется —
+ * итог остаётся одной строкой «✅ Верификация: …» в свёрнутом блоке. */
 async function demoVerify(ctx: BotContext, methodLabel: string): Promise<void> {
-  await sendText(ctx, verificationProcessing(methodLabel));
+  const processing = await ctx.reply(verificationProcessing(methodLabel), { format: 'markdown' });
   await runDemoVerification();
-  await sendText(ctx, VERIFICATION_SUCCESS);
+  await deleteMessage(ctx, processing.body.mid);
 }
 
 const awaitVerification: Step_ = async ({ ctx, data }) => {
@@ -565,6 +583,16 @@ function hasDocumentPhoto(ctx: BotContext): boolean {
 
 const PASSPORT_PAGES = 2;
 
+/** Ошибка ввода на шагах ручной проверки. Подсказка — служебное сообщение, уберётся после верного ответа. */
+async function manualError(ctx: BotContext, data: ProfileData, text: string, extra: Partial<ProfileData> = {}): Promise<Transition> {
+  const shown = await sendService(ctx, data, text);
+  return transition.stay({ ...dataOf(shown), ...extra });
+}
+
+function dataOf(result: Transition): Partial<ProfileData> {
+  return (result as { data?: Partial<ProfileData> }).data ?? {};
+}
+
 /**
  * Ручная проверка, шаг 1: паспорт обязателен — фото двух разворотов (стр. 2–3 и 4–5,
  * одним сообщением или по очереди) или серия и номер текстом.
@@ -574,24 +602,36 @@ const awaitPassport: Step_ = async ({ ctx, data }) => {
   const photos = (data.passportPhotos ?? 0) + documentPhotoCount(ctx);
   const passportReady = photos >= PASSPORT_PAGES || Boolean(text && isValidPassportFormat(text));
   if (!passportReady) {
-    if (photos === 0) return sendService(ctx, data, MANUAL_PASSPORT_INVALID);
-    // Пришёл один разворот — подтверждаем и ждём второй. Подсказка уберётся после следующего ответа.
-    const waiting = await sendService(ctx, data, MANUAL_PASSPORT_SECOND_PAGE);
-    return transition.stay({ ...(waiting as { data?: Partial<ProfileData> }).data, passportPhotos: photos });
+    if (photos === 0) return manualError(ctx, data, MANUAL_PASSPORT_INVALID);
+    // Пришёл один разворот — подтверждаем и ждём второй.
+    return manualError(ctx, data, MANUAL_PASSPORT_SECOND_PAGE, { passportPhotos: photos });
   }
-  await ask(ctx, 'await_inn', data);
-  return advance(ctx, data, 'await_inn', { passportProvided: true, passportPhotos: undefined });
+  const manualMessageIds = [...(data.manualMessageIds ?? []), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
+  const currentQuestionId = await ask(ctx, 'await_inn', data);
+  return advance(ctx, data, 'await_inn', { passportProvided: true, passportPhotos: undefined, manualMessageIds, currentQuestionId });
 };
 
-/** Ручная проверка, шаг 2: ИНН или СНИЛС — текстом или фото. */
+/**
+ * Ручная проверка, шаг 2: ИНН или СНИЛС — номером или фото. После проверки подсказки обоих шагов
+ * удаляются: остаётся «✅ Верификация: 📝 Паспорт + ИНН / СНИЛС». Сообщения пользователя с документами
+ * остаются — в личном диалоге MAX не даёт боту удалять чужие сообщения.
+ */
 const awaitInn: Step_ = async ({ ctx, data }) => {
   const text = readText(ctx);
-  if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return sendService(ctx, data, MANUAL_ID_INVALID);
+  if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return manualError(ctx, data, MANUAL_ID_INVALID);
   await deleteServiceMessages(ctx, data);
+  const toDelete = [...(data.manualMessageIds ?? []), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
+  for (const id of toDelete) await deleteMessage(ctx, id);
   await demoVerify(ctx, 'паспорт + ИНН / СНИЛС');
   const updated = { ...data, verified: true, idDocumentProvided: true };
   const currentQuestionId = await ask(ctx, 'await_contact', updated);
-  return transition.goto('await_contact', { verified: true, idDocumentProvided: true, currentQuestionId, serviceMessageIds: [] });
+  return transition.goto('await_contact', {
+    verified: true,
+    idDocumentProvided: true,
+    currentQuestionId,
+    manualMessageIds: undefined,
+    serviceMessageIds: [],
+  });
 };
 
 /** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
