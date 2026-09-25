@@ -240,7 +240,7 @@ export const SALARY_FIX_PROMPT = '💰 Выбери новую сумму — у
 // 14. Верификация
 export const VERIFICATION_OPTIONS: ChoiceOption[] = [
   { id: 'verify_gosuslugi', label: '🏛 Госуслуги (ЕСИА)' },
-  { id: 'verify_bankid', label: '🏦 Банк ID (Сбер ID / T-ID)' },
+  { id: 'verify_bankid', label: '🏦 Банк ID' },
   { id: 'verify_manual', label: '📝 Паспорт + ИНН / СНИЛС' },
 ];
 
@@ -279,6 +279,16 @@ export const MANUAL_ID_PROMPT =
 export const MANUAL_ID_INVALID = 'Не похоже на номер ИНН или СНИЛС. Проверь номер или отправь фото документа 📸';
 
 export const CHANGE_VERIFICATION_LABEL = '🔄 Другой способ проверки';
+
+export const BANK_OPTIONS: ChoiceOption[] = [
+  { id: 'bank_sber', label: 'Сбер ID' },
+  { id: 'bank_tbank', label: 'Т-ID' },
+  { id: 'bank_vtb', label: 'ВТБ ID' },
+  { id: 'bank_alfa', label: 'Альфа ID' },
+  { id: 'bank_gpb', label: 'Газпромбанк ID' },
+];
+
+export const BANK_PROMPT = '🏦 Выбери банк, через который войдёшь:';
 
 export function verificationProcessing(methodLabel: string): string {
   return `⏳ Проверяем: ${methodLabel}…`;

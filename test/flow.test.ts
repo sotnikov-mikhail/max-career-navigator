@@ -312,6 +312,21 @@ test('верификация через Госуслуги — демо-пров
   assert.ok(replies.at(-1)!.includes('держать связь'));
 });
 
+test('Банк ID: сначала выбор банка в том же сообщении, затем вход и итог с названием банка', async () => {
+  const chosen = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_bankid' });
+  assert.equal(stepOf(chosen.result), 'await_bank');
+  assert.equal(chosen.edits[0].id, 'v');
+  assert.ok(chosen.edits[0].keyboardText.includes('Сбер ID'));
+  assert.ok(chosen.edits[0].keyboardText.includes('Другой способ проверки'));
+
+  const signedIn = await runStep('await_bank', { currentQuestionId: 'v', verificationMethod: 'verify_bankid' }, { callbackPayload: 'bank_tbank' });
+  assert.equal(stepOf(signedIn.result), 'await_contact');
+  assert.equal(dataOf(signedIn.result).bank, 'bank_tbank');
+  assert.equal(dataOf(signedIn.result).verified, true);
+  assert.ok(signedIn.replies.some((r) => r.includes('вход через Т-ID')));
+  assert.ok(signedIn.edits.find((e) => e.id === 'v')!.text.includes('Банк ID — Т-ID'));
+});
+
 test('ручной ввод: вопрос о способе превращается в подсказку шага 1, итога пока нет', async () => {
   const { result, edits, replies } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_manual' });
   assert.equal(stepOf(result), 'await_passport');

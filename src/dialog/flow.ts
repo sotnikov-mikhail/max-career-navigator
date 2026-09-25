@@ -6,6 +6,8 @@ import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../se
 import type { BotContext, Goal, ProfileAnswers, ProfileData, Step } from './types.js';
 import {
   BACK_BUTTON_LABEL,
+  BANK_OPTIONS,
+  BANK_PROMPT,
   CHANGE_VERIFICATION_LABEL,
   CITY_EMPTY_PROMPT,
   CITY_PROMPT,
@@ -90,6 +92,7 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
   'await_salary_correction',
   'await_salary_fix',
   'await_verification',
+  'await_bank',
   'await_contact',
 ]);
 
@@ -138,6 +141,8 @@ function stepOptions(step: Step, data: ProfileData): ChoiceOption[] {
       return JOB_SALARY_FIX_OPTIONS;
     case 'await_verification':
       return VERIFICATION_OPTIONS;
+    case 'await_bank':
+      return BANK_OPTIONS;
     case 'await_contact':
       return CONTACT_OPTIONS;
     default:
@@ -186,6 +191,14 @@ function questionView(step: Step, data: ProfileData): QuestionView {
       return { text: SALARY_FIX_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_verification':
       return { text: VERIFICATION_PROMPT, keyboard: choiceKeyboard(options) };
+    case 'await_bank':
+      return {
+        text: BANK_PROMPT,
+        keyboard: actionsKeyboard([
+          ...options.map((o) => ({ label: o.label, payload: o.id })),
+          { label: CHANGE_VERIFICATION_LABEL, payload: 'change_verification' },
+        ]),
+      };
     case 'await_passport':
       return { text: MANUAL_PASSPORT_PROMPT, keyboard: changeVerificationKeyboard() };
     case 'await_inn':
@@ -258,8 +271,10 @@ function answerLabel(field: keyof ProfileAnswers, data: ProfileData): string {
       return (Array.isArray(data.motivation) ? data.motivation : []).map((id) => labelOf(MOTIVATION_OPTIONS, id)).join(', ') || '—';
     case 'salaryRevision':
       return data.salaryRevision === 'keep' ? labelOf(SALARY_CORRECTION_OPTIONS, 'keep_salary') : '✏️ Сумма изменена';
-    case 'verificationMethod':
-      return labelOf(VERIFICATION_OPTIONS, data.verificationMethod);
+    case 'verificationMethod': {
+      const method = labelOf(VERIFICATION_OPTIONS, data.verificationMethod);
+      return data.verificationMethod === 'verify_bankid' && data.bank ? `${method} — ${labelOf(BANK_OPTIONS, data.bank)}` : method;
+    }
     case 'contact':
       return labelOf(CONTACT_OPTIONS, data.contact);
     default:
@@ -568,6 +583,11 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   if (!option) return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
   const patch: Partial<ProfileData> = { verificationMethod: option.id };
+  if (option.id === 'verify_bankid') {
+    // Сначала выбор банка — в том же сообщении, где был вопрос о способе.
+    const currentQuestionId = await showInPlace(ctx, data, 'await_bank');
+    return advance(ctx, data, 'await_bank', { ...patch, currentQuestionId });
+  }
   if (option.id === 'verify_manual') {
     // Вопрос о способе превращается в подсказку шага 1; итог «✅ Верификация» появится после данных.
     const currentQuestionId = await showInPlace(ctx, data, 'await_passport');
@@ -610,6 +630,20 @@ async function manualError(ctx: BotContext, data: ProfileData, text: string, ext
 function dataOf(result: Transition): Partial<ProfileData> {
   return (result as { data?: Partial<ProfileData> }).data ?? {};
 }
+
+/** Вход через выбранный банк (имитация), итог: «✅ Верификация: 🏦 Банк ID — Сбер ID». */
+const awaitBank: Step_ = async ({ ctx, data }) => {
+  const bank = BANK_OPTIONS.find((o) => o.id === ctx.callback?.payload);
+  if (!bank) return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  return answer(ctx, data, 'verificationMethod', { bank: bank.id }, 'await_contact', {
+    back: false,
+    before: async () => {
+      await demoVerify(ctx, `вход через ${bank.label}`);
+      return { verified: true };
+    },
+  });
+};
 
 /**
  * Ручная проверка, шаг 1: паспорт обязателен — фото двух разворотов (стр. 2–3 и 4–5, одним
@@ -677,6 +711,7 @@ async function changeVerification(ctx: BotContext, data: ProfileData): Promise<T
   return transition.goto('await_verification', {
     currentQuestionId,
     verificationMethod: undefined,
+    bank: undefined,
     passportProvided: undefined,
     passportPhotos: undefined,
     manualMessageIds: undefined,
@@ -686,8 +721,8 @@ async function changeVerification(ctx: BotContext, data: ProfileData): Promise<T
 
 /** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
 function profileAnswers(data: ProfileData): ProfileAnswers {
-  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, passportProvided, idDocumentProvided, verified, contact } = data;
-  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, passportProvided, idDocumentProvided, verified, contact };
+  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact } = data;
+  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact };
 }
 
 const awaitContact: Step_ = async ({ ctx, data }) => {
@@ -779,7 +814,7 @@ async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promis
   const payload = ctx.callback?.payload;
   if (payload === 'back') return goBack(ctx, data);
   if (payload === 'resume') return resume(ctx, step, data);
-  if (payload === 'change_verification' && (step === 'await_passport' || step === 'await_inn')) {
+  if (payload === 'change_verification' && (step === 'await_bank' || step === 'await_passport' || step === 'await_inn')) {
     return changeVerification(ctx, data);
   }
   return undefined;
@@ -810,6 +845,7 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
     await_salary_correction: awaitSalaryCorrection,
     await_salary_fix: awaitSalaryFix,
     await_verification: awaitVerification,
+    await_bank: awaitBank,
     await_passport: awaitPassport,
     await_inn: awaitInn,
     await_contact: awaitContact,
