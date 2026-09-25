@@ -13,7 +13,8 @@ interface FakeCtxOptions {
   callbackPayload?: string;
   location?: { latitude: number; longitude: number };
   messageId?: string;
-  photo?: boolean;
+  /** Сколько фото приложено к сообщению. */
+  photos?: number;
 }
 
 interface Edit {
@@ -33,7 +34,7 @@ function fakeCtx(options: FakeCtxOptions = {}) {
   const ctx = {
     message: isCallback
       ? undefined
-      : { body: { text: options.text ?? null, attachments: options.photo ? [{ type: 'image', payload: {} }] : [] } },
+      : { body: { text: options.text ?? null, attachments: Array.from({ length: options.photos ?? 0 }, () => ({ type: 'image', payload: {} })) } },
     callback: isCallback ? { payload: options.callbackPayload } : undefined,
     location: options.location,
     chatId: 42,
@@ -328,11 +329,25 @@ test('ручной ввод: сначала паспорт (обязательн
   assert.equal(dataOf(good.result).verified, true);
 });
 
-test('ручной ввод: фото документа принимается как есть (имитация)', async () => {
-  const passport = await runStep('await_passport', {}, { photo: true });
-  assert.equal(stepOf(passport.result), 'await_inn');
-  const id = await runStep('await_inn', { passportProvided: true }, { photo: true });
-  assert.equal(stepOf(id.result), 'await_contact');
+test('паспорт по фото: после разворота 2–3 бот ждёт разворот 4–5', async () => {
+  const first = await runStep('await_passport', {}, { photos: 1 });
+  assert.equal(first.result.type, 'stay');
+  assert.equal(dataOf(first.result).passportPhotos, 1);
+  assert.ok(first.replies[0].includes('стр. 4–5'));
+
+  const second = await runStep('await_passport', { passportPhotos: 1 }, { photos: 1 });
+  assert.equal(stepOf(second.result), 'await_inn');
+  assert.equal(dataOf(second.result).passportProvided, true);
+});
+
+test('паспорт: оба разворота одним сообщением', async () => {
+  const { result } = await runStep('await_passport', {}, { photos: 2 });
+  assert.equal(stepOf(result), 'await_inn');
+});
+
+test('шаг 2: фото ИНН или СНИЛС принимается как есть (имитация)', async () => {
+  const { result } = await runStep('await_inn', { passportProvided: true }, { photos: 1 });
+  assert.equal(stepOf(result), 'await_contact');
 });
 
 test('связь → финал: сообщение «Это твоё начало!» с кнопками профиля и подборки', async () => {

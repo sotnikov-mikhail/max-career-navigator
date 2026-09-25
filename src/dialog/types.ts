@@ -39,6 +39,8 @@ export interface DialogState {
   lastAnswered?: keyof ProfileAnswers;
   /** Выбор в мультивыборе мотивации до нажатия «Готово». */
   motivationDraft?: string[];
+  /** Сколько фото разворотов паспорта уже прислали (нужно два: стр. 2–3 и 4–5). */
+  passportPhotos?: number;
   cityFromGeo?: boolean;
   midpointSent?: boolean;
   /** id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */

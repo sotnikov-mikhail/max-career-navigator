@@ -26,6 +26,7 @@ import {
   MANUAL_ID_PROMPT,
   MANUAL_PASSPORT_INVALID,
   MANUAL_PASSPORT_PROMPT,
+  MANUAL_PASSPORT_SECOND_PAGE,
   MIDPOINT_CONTINUE_LABEL,
   MIDPOINT_MESSAGE,
   MOTIVATION_COUNT,
@@ -553,17 +554,33 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   });
 };
 
-/** Фото или файл документа. Имитация: содержимое не распознаём и не сохраняем — сам факт отправки принимаем. */
-function hasDocumentPhoto(ctx: BotContext): boolean {
-  return Boolean(ctx.message?.body.attachments?.some((a) => a.type === 'image' || a.type === 'file'));
+/** Сколько фото или файлов документа в сообщении. Имитация: содержимое не распознаём и не сохраняем. */
+function documentPhotoCount(ctx: BotContext): number {
+  return ctx.message?.body.attachments?.filter((a) => a.type === 'image' || a.type === 'file').length ?? 0;
 }
 
-/** Ручная проверка, шаг 1: паспорт обязателен — серия и номер текстом или фото. */
+function hasDocumentPhoto(ctx: BotContext): boolean {
+  return documentPhotoCount(ctx) > 0;
+}
+
+const PASSPORT_PAGES = 2;
+
+/**
+ * Ручная проверка, шаг 1: паспорт обязателен — фото двух разворотов (стр. 2–3 и 4–5,
+ * одним сообщением или по очереди) или серия и номер текстом.
+ */
 const awaitPassport: Step_ = async ({ ctx, data }) => {
   const text = readText(ctx);
-  if (!hasDocumentPhoto(ctx) && !(text && isValidPassportFormat(text))) return sendService(ctx, data, MANUAL_PASSPORT_INVALID);
+  const photos = (data.passportPhotos ?? 0) + documentPhotoCount(ctx);
+  const passportReady = photos >= PASSPORT_PAGES || Boolean(text && isValidPassportFormat(text));
+  if (!passportReady) {
+    if (photos === 0) return sendService(ctx, data, MANUAL_PASSPORT_INVALID);
+    // Пришёл один разворот — подтверждаем и ждём второй. Подсказка уберётся после следующего ответа.
+    const waiting = await sendService(ctx, data, MANUAL_PASSPORT_SECOND_PAGE);
+    return transition.stay({ ...(waiting as { data?: Partial<ProfileData> }).data, passportPhotos: photos });
+  }
   await ask(ctx, 'await_inn', data);
-  return advance(ctx, data, 'await_inn', { passportProvided: true });
+  return advance(ctx, data, 'await_inn', { passportProvided: true, passportPhotos: undefined });
 };
 
 /** Ручная проверка, шаг 2: ИНН или СНИЛС — текстом или фото. */
