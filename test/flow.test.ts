@@ -110,6 +110,8 @@ test('имя: задаётся вопрос об этапе обучения, е
 test('приветствие: без слов про «первую работу»', async () => {
   const { replies } = await runStep('greet', {}, { text: '/start' });
   assert.ok(!replies[0].includes('первую работу'));
+  assert.ok(!/трудоустр/i.test(replies[0]));
+  assert.ok(replies[0].includes('прокачать карьеру'));
 });
 
 // --- Блоки и «Изменить» -----------------------------------------------------
