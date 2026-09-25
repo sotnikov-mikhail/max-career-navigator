@@ -1,6 +1,5 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
 import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
-import { matchVacancies, type Vacancy } from '../services/matching.js';
 import { isValidIdFormat, isValidPassportFormat, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
 import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
@@ -15,7 +14,6 @@ import {
   EMPLOYMENT_PROMPT,
   FIELD_OPTIONS,
   FIELD_PROMPT,
-  FINAL_BUTTON_OFFERS,
   FINAL_BUTTON_PROFILE,
   FINAL_MESSAGE,
   GOAL_OPTIONS,
@@ -50,8 +48,6 @@ import {
   experiencePrompt,
   invalidChoicePrompt,
   motivationPrompt,
-  offerLine,
-  offersIntro,
   salaryOptions,
   salaryPrompt,
   salaryTitle,
@@ -198,10 +194,7 @@ function questionView(step: Step, data: ProfileData): QuestionView {
     case 'await_final_action':
       return {
         text: FINAL_MESSAGE,
-        keyboard: actionsKeyboard([
-          { label: FINAL_BUTTON_PROFILE, payload: 'profile' },
-          { label: FINAL_BUTTON_OFFERS, payload: 'offers' },
-        ]),
+        keyboard: actionsKeyboard([{ label: FINAL_BUTTON_PROFILE, payload: 'profile' }]),
       };
     default:
       return { text: '' };
@@ -547,7 +540,7 @@ const awaitSalaryFix: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'salary', patch, 'await_verification', { back: false });
 };
 
-/** «⏳ Имитируем проверку…» видно только пока идёт проверка, потом сообщение удаляется —
+/** «⏳ Проверяем…» видно только пока идёт проверка, потом сообщение удаляется —
  * итог остаётся одной строкой «✅ Верификация: …» в свёрнутом блоке. */
 async function demoVerify(ctx: BotContext, methodLabel: string): Promise<void> {
   const processing = await ctx.reply(verificationProcessing(methodLabel), { format: 'markdown' });
@@ -583,10 +576,18 @@ function hasDocumentPhoto(ctx: BotContext): boolean {
 
 const PASSPORT_PAGES = 2;
 
+/**
+ * Сообщение пользователя с документом запоминаем, чтобы после проверки попробовать удалить.
+ * По документации MAX бот в личном диалоге удаляет только свои сообщения — пробуем, отказ логируется.
+ */
+function withUserMessage(ctx: BotContext, data: ProfileData): string[] {
+  return [...(data.manualMessageIds ?? []), ...(ctx.messageId ? [ctx.messageId] : [])];
+}
+
 /** Ошибка ввода на шагах ручной проверки. Подсказка — служебное сообщение, уберётся после верного ответа. */
 async function manualError(ctx: BotContext, data: ProfileData, text: string, extra: Partial<ProfileData> = {}): Promise<Transition> {
   const shown = await sendService(ctx, data, text);
-  return transition.stay({ ...dataOf(shown), ...extra });
+  return transition.stay({ ...dataOf(shown), manualMessageIds: withUserMessage(ctx, data), ...extra });
 }
 
 function dataOf(result: Transition): Partial<ProfileData> {
@@ -606,21 +607,21 @@ const awaitPassport: Step_ = async ({ ctx, data }) => {
     // Пришёл один разворот — подтверждаем и ждём второй.
     return manualError(ctx, data, MANUAL_PASSPORT_SECOND_PAGE, { passportPhotos: photos });
   }
-  const manualMessageIds = [...(data.manualMessageIds ?? []), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
+  const manualMessageIds = [...withUserMessage(ctx, data), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
   const currentQuestionId = await ask(ctx, 'await_inn', data);
   return advance(ctx, data, 'await_inn', { passportProvided: true, passportPhotos: undefined, manualMessageIds, currentQuestionId });
 };
 
 /**
  * Ручная проверка, шаг 2: ИНН или СНИЛС — номером или фото. После проверки подсказки обоих шагов
- * удаляются: остаётся «✅ Верификация: 📝 Паспорт + ИНН / СНИЛС». Сообщения пользователя с документами
- * остаются — в личном диалоге MAX не даёт боту удалять чужие сообщения.
+ * и присланные документы удаляются: остаётся «✅ Верификация: 📝 Паспорт + ИНН / СНИЛС».
+ * Удалить сообщения пользователя MAX может не позволить — тогда они останутся, отказ будет в логе.
  */
 const awaitInn: Step_ = async ({ ctx, data }) => {
   const text = readText(ctx);
   if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return manualError(ctx, data, MANUAL_ID_INVALID);
   await deleteServiceMessages(ctx, data);
-  const toDelete = [...(data.manualMessageIds ?? []), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
+  const toDelete = [...withUserMessage(ctx, data), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
   for (const id of toDelete) await deleteMessage(ctx, id);
   await demoVerify(ctx, 'паспорт + ИНН / СНИЛС');
   const updated = { ...data, verified: true, idDocumentProvided: true };
@@ -653,12 +654,6 @@ const awaitContact: Step_ = async ({ ctx, data }) => {
   });
 };
 
-export async function sendOffers(ctx: BotContext, data: ProfileData): Promise<void> {
-  const offers = matchVacancies(data);
-  const lines = offers.map((o: Vacancy) => offerLine(o.title, o.org, o.city, o.pay)).join('\n');
-  await sendText(ctx, lines ? `${offersIntro(offers.length)}\n\n${lines}` : offersIntro(0));
-}
-
 const PROFILE_FIELDS: Array<keyof ProfileAnswers> = [
   'studyStage',
   'goal',
@@ -676,7 +671,7 @@ const PROFILE_FIELDS: Array<keyof ProfileAnswers> = [
 
 export function profileCard(data: ProfileData): string {
   const lines = PROFILE_FIELDS.map((field) => `**${fieldTitle(field, data)}:** ${answerLabel(field, data)}`);
-  const status = data.verified ? '✅ подтверждён (демо)' : '⏳ не подтверждён';
+  const status = data.verified ? '✅ подтверждён' : '⏳ не подтверждён';
   return `# 🪪 Мой профиль\n\n**Имя:** ${data.name ?? '—'}\n${lines.join('\n')}\n\n**Статус:** ${status}`;
 }
 
@@ -686,10 +681,6 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   if (payload === 'profile') {
     await sendText(ctx, profileCard(data));
     return transition.stay();
-  }
-  if (payload === 'offers') {
-    await sendOffers(ctx, data);
-    return transition.stay({ offersViewed: true });
   }
   return transition.stay();
 };
@@ -724,10 +715,7 @@ async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
 /** Кнопка из напоминания: переспрашиваем текущий вопрос внизу чата (старый удаляем) или показываем подборку. */
 async function resume(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition> {
   await acknowledgeCallback(ctx);
-  if (step === 'await_final_action') {
-    await sendOffers(ctx, data);
-    return transition.stay({ offersViewed: true });
-  }
+  if (step === 'await_final_action') return transition.stay();
   if (!TRACKED_STEPS.has(step)) {
     await ask(ctx, step, data);
     return transition.stay();
@@ -742,11 +730,6 @@ async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promis
   const payload = ctx.callback?.payload;
   if (payload === 'back') return goBack(ctx, data);
   if (payload === 'resume') return resume(ctx, step, data);
-  if (payload === 'offers' && step !== 'await_final_action') {
-    await acknowledgeCallback(ctx);
-    await sendOffers(ctx, data);
-    return transition.stay({ offersViewed: true });
-  }
   return undefined;
 }
 

@@ -4,7 +4,6 @@ import type { Bot, ScenarioState } from '@maxhub/max-bot-api';
 import { careerScenario, needsSalaryCorrection } from '../src/dialog/flow.js';
 import type { BotContext, BotSession, ProfileData, Step } from '../src/dialog/types.js';
 import { isValidIdFormat, isValidInnFormat } from '../src/services/verification.js';
-import { matchVacancies } from '../src/services/matching.js';
 import { nearestCity } from '../src/services/geo.js';
 import { dueReminder, reminderMessage, sendDueReminders } from '../src/reminders.js';
 
@@ -307,7 +306,7 @@ test('верификация через Госуслуги — демо-пров
   const { result, replies } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_gosuslugi' });
   assert.equal(stepOf(result), 'await_contact');
   assert.equal(dataOf(result).verified, true);
-  assert.ok(replies.some((r) => r.includes('Имитируем проверку')));
+  assert.ok(replies.some((r) => r.includes('Проверяем')));
   assert.ok(replies.at(-1)!.includes('держать связь'));
 });
 
@@ -329,15 +328,14 @@ test('ручной ввод: сначала паспорт (обязательн
   assert.equal(dataOf(good.result).verified, true);
 });
 
-test('после ручной проверки подсказки шагов удаляются (сообщения пользователя MAX удалять не даёт)', async () => {
+test('после ручной проверки удаляются подсказки шагов и сообщения пользователя с документами', async () => {
   const { result, deleted, replies } = await runStep(
     'await_inn',
     { passportProvided: true, manualMessageIds: ['passport-prompt'], currentQuestionId: 'inn-prompt' },
     { text: '1234567890', messageId: 'inn-text' },
   );
   assert.equal(stepOf(result), 'await_contact');
-  for (const id of ['passport-prompt', 'inn-prompt']) assert.ok(deleted.includes(id), id);
-  assert.ok(!deleted.includes('inn-text'));
+  for (const id of ['passport-prompt', 'inn-prompt', 'inn-text']) assert.ok(deleted.includes(id), id);
   // «Имитируем проверку» тоже удаляется, «Профиль подтверждён» не отправляется
   assert.ok(deleted.includes('m1'));
   assert.ok(!replies.some((r) => r.includes('Профиль подтверждён')));
@@ -378,12 +376,17 @@ test('связь → финал: сообщение «Это твоё начал
   assert.ok(typeof dataOf(result).completedAt === 'number');
 });
 
-test('финал: карточка профиля и подборка (отмечается просмотр)', async () => {
+test('финал: кнопка открывает карточку профиля без пометок «демо»', async () => {
   const profile = await runStep('await_final_action', { name: 'Аня', goal: 'job', motivation: ['growth'], verified: true }, { callbackPayload: 'profile' });
   assert.ok(profile.replies[0].includes('Мой профиль'));
   assert.ok(profile.replies[0].includes('Аня'));
-  const offers = await runStep('await_final_action', { field: 'it', goal: 'internship' }, { callbackPayload: 'offers' });
-  assert.equal(dataOf(offers.result).offersViewed, true);
+  assert.ok(!/демо/i.test(profile.replies[0]));
+});
+
+test('финальное сообщение без слова «демо»', async () => {
+  const { replies } = await runStep('await_contact', { currentQuestionId: 'k' }, { callbackPayload: 'contact_offline' });
+  assert.ok(replies.at(-1)!.includes('Это твоё начало'));
+  assert.ok(!/демо/i.test(replies.at(-1)!));
 });
 
 // --- Напоминания ------------------------------------------------------------
@@ -399,18 +402,14 @@ test('напоминания: 30 минут и 2 часа для недозап�
   assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_30m', 'incomplete_2h'] }, t0 + 300 * MIN), undefined);
 });
 
-test('напоминания: для готового профиля — только пока подборку не открыли', () => {
-  const t0 = 1_000_000;
-  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0 }, t0 + 30 * MIN), 'done_30m');
-  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0, offersViewed: true }, t0 + 120 * MIN), undefined);
+test('напоминания: после финала не приходят', () => {
+  assert.equal(dueReminder('await_final_action', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });
 
-test('второе напоминание: честное число подборок вместо «появилось за час»', () => {
-  const message = reminderMessage('incomplete_2h', { field: 'it', goal: 'job' });
+test('второе напоминание без выдуманных цифр', () => {
+  const message = reminderMessage('incomplete_2h');
   assert.ok(!message.text.includes('[X]'));
-  assert.ok(!message.text.includes('за этот час'));
   assert.equal(message.payload, 'resume');
-  assert.ok(reminderMessage('done_2h', {}).text.includes('два часа'));
 });
 
 function fakeReminderEnv(data: ProfileData, step: Step) {
@@ -449,10 +448,10 @@ test('напоминание удаляет вопрос без ответа и 
   assert.deepEqual(data.remindersSent, ['incomplete_30m']);
 });
 
-test('напоминание о готовом профиле ничего не удаляет', async () => {
+test('после финала напоминание не отправляется', async () => {
   const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'final' }, 'await_final_action');
-  await sendDueReminders(env.bot, env.store, 1 + 30 * MIN);
-  assert.equal(env.sent.length, 1);
+  await sendDueReminders(env.bot, env.store, 1 + 300 * MIN);
+  assert.equal(env.sent.length, 0);
   assert.deepEqual(env.deletedIds, []);
 });
 
@@ -527,9 +526,4 @@ test('nearestCity: Краснодар в списке городов', () => {
   const { city, distanceKm } = nearestCity(45.04, 38.98);
   assert.equal(city.name, 'Краснодар');
   assert.ok(distanceKm < 10);
-});
-
-test('matchVacancies: не больше лимита, новые сферы находят вакансии', () => {
-  assert.ok(matchVacancies({ field: 'it', goal: 'internship', city: 'Москва' }, 3).length <= 3);
-  assert.ok(matchVacancies({ field: 'design', goal: 'job' }, 3).some((v) => v.field === 'design'));
 });

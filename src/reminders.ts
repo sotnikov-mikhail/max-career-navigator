@@ -1,79 +1,47 @@
 import type { Bot, SyncSessionStore } from '@maxhub/max-bot-api';
 import { actionsKeyboard } from './keyboards.js';
-import { matchVacancies } from './services/matching.js';
 import type { BotContext, BotSession, ProfileData, Step } from './dialog/types.js';
 
-export type ReminderKind = 'incomplete_30m' | 'incomplete_2h' | 'done_30m' | 'done_2h';
+export type ReminderKind = 'incomplete_30m' | 'incomplete_2h';
 
 const MINUTE = 60 * 1000;
 const FIRST_REMINDER_MS = 30 * MINUTE;
 const SECOND_REMINDER_MS = 2 * 60 * MINUTE;
 
 /**
- * Какое напоминание пора отправить. Два набора:
- * — анкета не дозаполнена (любой шаг до финала);
- * — профиль готов, но подборку человек так и не открыл.
- * Каждое — один раз за период неактивности (любое действие пользователя сбрасывает счётчик).
- * Первое — через 30 минут бездействия, второе — через 2 часа. Если бот был выключен
- * и первое «проспали», сразу шлём только второе.
+ * Какое напоминание пора отправить, если анкета не дозаполнена. Каждое — один раз за период
+ * неактивности (любое действие пользователя сбрасывает счётчик). Первое — через 30 минут, второе —
+ * через 2 часа; если бот был выключен и первое «проспали», сразу шлём только второе.
+ * После финала напоминаний нет.
  */
 export function dueReminder(step: Step, data: ProfileData, now: number): ReminderKind | undefined {
-  if (step === 'greet' || !data.lastActivityAt) return undefined;
-  const done = step === 'await_final_action';
-  if (done && data.offersViewed) return undefined;
+  if (step === 'greet' || step === 'await_final_action' || !data.lastActivityAt) return undefined;
   const sent = data.remindersSent ?? [];
   const elapsed = now - data.lastActivityAt;
-  const [first, second]: ReminderKind[] = done ? ['done_30m', 'done_2h'] : ['incomplete_30m', 'incomplete_2h'];
-  if (elapsed >= SECOND_REMINDER_MS) return sent.includes(second) ? undefined : second;
-  if (elapsed >= FIRST_REMINDER_MS && !sent.includes(first)) return first;
+  if (elapsed >= SECOND_REMINDER_MS) return sent.includes('incomplete_2h') ? undefined : 'incomplete_2h';
+  if (elapsed >= FIRST_REMINDER_MS && !sent.includes('incomplete_30m')) return 'incomplete_30m';
   return undefined;
 }
 
-export function reminderMessage(kind: ReminderKind, data: ProfileData): { text: string; button: string; payload: string } {
-  switch (kind) {
-    case 'incomplete_30m':
-      return {
-        text:
-          '⏳ Пока ты отвлёкся(лась), твоё место в очереди просмотров сдвигается.\n\n' +
-          'Каждую минуту работодатели и государственные программы смотрят профили тех, кто дошёл до конца. Чем дольше висит незавершённая анкета, тем больше горячих стажировок и вакансий уходит другим ребятам.\n\n' +
-          'Осталось совсем немного — не теряй время на старте!',
-        button: '▶️ Вернуться и догнать остальных',
-        payload: 'resume',
-      };
-    case 'incomplete_2h': {
-      // В исходном тексте «за этот час прошло [X] новых подборок» — данных о новых вакансиях за период
-      // у нас нет, поэтому честно подставляем, сколько подходящих демо-подборок уже есть под параметры.
-      const count = matchVacancies(data, Number.MAX_SAFE_INTEGER).length;
-      const hook =
-        count > 0
-          ? `🔥 Под твои параметры уже есть ${count} подходящих подборок — а ты их ещё не видишь.`
-          : '🔥 Твой профиль всё ещё на паузе.';
-      return {
-        text:
-          `${hook}\n\n` +
-          'Ты уже проделал(а) часть пути, но твой цифровой профиль всё ещё не виден компаниям. Пока анкета на паузе — время и реальные предложения просто сгорают.\n\n' +
-          'Заверши профиль прямо сейчас, чтобы активировать поиск и не отдавать свои возможности другим!',
-        button: '🔥 Активировать профиль',
-        payload: 'resume',
-      };
-    }
-    case 'done_30m':
-      return {
-        text:
-          '👀 Твой профиль готов, но ты ещё не посмотрел(а) подборки!\n\n' +
-          'Прямо сейчас система подбирает варианты под твои параметры. Зайди на 10 секунд, чтобы увидеть первое совпадение и не заставлять работодателей ждать.',
-        button: '📋 Открыть первые варианты',
-        payload: 'offers',
-      };
-    case 'done_2h':
-      return {
-        text:
-          '⏰ Твой готовый профиль простаивает уже два часа.\n\n' +
-          'Пока ты вне бота, другие студенты с аналогичным профилем уже получают приглашения и нарабатывают опыт. Не теряй время — проверь, кто прямо сейчас ищет именно тебя!',
-        button: '📋 Проверить подборку и статус',
-        payload: 'offers',
-      };
+export function reminderMessage(kind: ReminderKind): { text: string; button: string; payload: string } {
+  if (kind === 'incomplete_30m') {
+    return {
+      text:
+        '⏳ Пока ты отвлёкся(лась), твоё место в очереди просмотров сдвигается.\n\n' +
+        'Каждую минуту работодатели и государственные программы смотрят профили тех, кто дошёл до конца. Чем дольше висит незавершённая анкета, тем больше горячих стажировок и вакансий уходит другим ребятам.\n\n' +
+        'Осталось совсем немного — не теряй время на старте!',
+      button: '▶️ Вернуться и догнать остальных',
+      payload: 'resume',
+    };
   }
+  return {
+    text:
+      '🔥 Твой профиль всё ещё на паузе.\n\n' +
+      'Ты уже проделал(а) часть пути, но твой цифровой профиль всё ещё не виден компаниям. Пока анкета на паузе — время и реальные предложения просто сгорают.\n\n' +
+      'Заверши профиль прямо сейчас, чтобы активировать поиск и не отдавать свои возможности другим!',
+    button: '🔥 Активировать профиль',
+    payload: 'resume',
+  };
 }
 
 interface IterableSessionStore extends SyncSessionStore<BotSession> {
@@ -95,7 +63,7 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
     const kind = dueReminder(scenario.step as Step, data, now);
     const chatId = chatIdFromKey(key);
     if (!kind || chatId === undefined) continue;
-    const message = reminderMessage(kind, data);
+    const message = reminderMessage(kind);
 
     try {
       await bot.api.sendMessageToChat(chatId, message.text, {
@@ -108,7 +76,7 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
 
     // Анкета не дозаполнена: вопрос без ответа убираем из чата — «Вернуться» задаст его заново внизу.
     // Удаляем только после успешной отправки, иначе человек остался бы и без вопроса, и без напоминания.
-    const dropQuestion = kind.startsWith('incomplete') && data.currentQuestionId;
+    const dropQuestion = data.currentQuestionId;
     if (dropQuestion) {
       try {
         await bot.api.deleteMessage(data.currentQuestionId!);

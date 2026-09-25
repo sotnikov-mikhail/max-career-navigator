@@ -12,5 +12,4 @@ export const config = {
   botToken: requireEnv('BOT_TOKEN'),
   sessionsFile: process.env.SESSIONS_FILE ?? 'data/sessions.json',
   submissionsFile: process.env.SUBMISSIONS_FILE ?? 'data/submissions.json',
-  vacanciesFile: process.env.VACANCIES_FILE ?? 'data/vacancies.json',
 };

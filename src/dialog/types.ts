@@ -49,7 +49,6 @@ export interface DialogState {
   serviceMessageIds?: string[];
   lastActivityAt?: number;
   remindersSent?: string[];
-  offersViewed?: boolean;
   completedAt?: number;
 }
 

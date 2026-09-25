@@ -18,6 +18,5 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY certs ./certs
-COPY data ./data
 
 CMD ["node", "dist/bot.js"]
