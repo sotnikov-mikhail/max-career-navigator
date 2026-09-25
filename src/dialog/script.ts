@@ -241,7 +241,7 @@ export const SALARY_FIX_PROMPT = '💰 Выбери новую сумму — у
 export const VERIFICATION_OPTIONS: ChoiceOption[] = [
   { id: 'verify_gosuslugi', label: '🏛 Госуслуги (ЕСИА)' },
   { id: 'verify_bankid', label: '🏦 Банк ID (Сбер ID / T-ID)' },
-  { id: 'verify_manual', label: '📝 Ручной ввод ИНН / СНИЛС' },
+  { id: 'verify_manual', label: '📝 Паспорт + ИНН / СНИЛС' },
 ];
 
 export const VERIFICATION_PROMPT =
@@ -249,10 +249,17 @@ export const VERIFICATION_PROMPT =
   'Выбери удобный способ верификации:\n\n' +
   quote('⚠️ Демо-режим: реальная интеграция с Госуслугами, Банк ID и госсервисами в этом MVP не подключена — вход имитируется.');
 
-export const MANUAL_ID_PROMPT =
-  '📝 Введи тестовый ИНН (10 или 12 цифр) или СНИЛС (11 цифр). Проверяем только формат, без обращения к госсервисам. Фото документов не нужны.';
+export const MANUAL_PASSPORT_PROMPT =
+  '🛂 Шаг 1 из 2 — паспорт. Напиши серию и номер (10 цифр) или отправь фото разворота с фотографией.\n\n' +
+  quote('Демо-режим: документы никуда не передаются и не проверяются. Можно отправить тестовые данные.');
 
-export const MANUAL_ID_INVALID = 'Не похоже на ИНН или СНИЛС: нужно 10 или 12 цифр (ИНН) или 11 цифр (СНИЛС). Попробуй ещё раз.';
+export const MANUAL_PASSPORT_INVALID = 'Не похоже на серию и номер паспорта: нужно 10 цифр (например, 4512 345678). Или отправь фото разворота.';
+
+export const MANUAL_ID_PROMPT =
+  '📝 Шаг 2 из 2 — ИНН или СНИЛС. Напиши ИНН (10 или 12 цифр) или СНИЛС (11 цифр), либо отправь фото документа.';
+
+export const MANUAL_ID_INVALID =
+  'Не похоже на ИНН или СНИЛС: нужно 10 или 12 цифр (ИНН) или 11 цифр (СНИЛС). Или отправь фото документа.';
 
 export function verificationProcessing(methodLabel: string): string {
   return `⏳ Имитируем проверку: ${methodLabel}…`;

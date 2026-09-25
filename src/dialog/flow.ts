@@ -1,7 +1,7 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
 import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
 import { matchVacancies, type Vacancy } from '../services/matching.js';
-import { isValidIdFormat, runDemoVerification } from '../services/verification.js';
+import { isValidIdFormat, isValidPassportFormat, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
 import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
 import type { BotContext, Goal, ProfileAnswers, ProfileData, Step } from './types.js';
@@ -24,6 +24,8 @@ import {
   JOB_SALARY_FIX_OPTIONS,
   MANUAL_ID_INVALID,
   MANUAL_ID_PROMPT,
+  MANUAL_PASSPORT_INVALID,
+  MANUAL_PASSPORT_PROMPT,
   MIDPOINT_CONTINUE_LABEL,
   MIDPOINT_MESSAGE,
   MOTIVATION_COUNT,
@@ -187,6 +189,8 @@ function questionView(step: Step, data: ProfileData): QuestionView {
       return { text: SALARY_FIX_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_verification':
       return { text: VERIFICATION_PROMPT, keyboard: choiceKeyboard(options) };
+    case 'await_passport':
+      return { text: MANUAL_PASSPORT_PROMPT };
     case 'await_inn':
       return { text: MANUAL_ID_PROMPT };
     case 'await_contact':
@@ -269,9 +273,9 @@ function answerLabel(field: keyof ProfileAnswers, data: ProfileData): string {
   }
 }
 
-/** «Вопрос: ответ» без галочки — у вариантов ответа и так есть свои значки. */
+/** «✅ Вопрос: ответ». У самих вариантов ответа ✅ нет, так что галочка не дублируется. */
 function recapText(field: keyof ProfileAnswers, data: ProfileData): string {
-  return `**${fieldTitle(field, data)}:** ${answerLabel(field, data)}`;
+  return `✅ **${fieldTitle(field, data)}:** ${answerLabel(field, data)}`;
 }
 
 function backKeyboard(): Keyboard {
@@ -538,7 +542,7 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   await acknowledgeCallback(ctx);
   const patch: Partial<ProfileData> = { verificationMethod: option.id };
   if (option.id === 'verify_manual') {
-    return answer(ctx, data, 'verificationMethod', patch, 'await_inn', { back: false });
+    return answer(ctx, data, 'verificationMethod', patch, 'await_passport', { back: false });
   }
   return answer(ctx, data, 'verificationMethod', patch, 'await_contact', {
     back: false,
@@ -549,20 +553,34 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   });
 };
 
+/** Фото или файл документа. Имитация: содержимое не распознаём и не сохраняем — сам факт отправки принимаем. */
+function hasDocumentPhoto(ctx: BotContext): boolean {
+  return Boolean(ctx.message?.body.attachments?.some((a) => a.type === 'image' || a.type === 'file'));
+}
+
+/** Ручная проверка, шаг 1: паспорт обязателен — серия и номер текстом или фото. */
+const awaitPassport: Step_ = async ({ ctx, data }) => {
+  const text = readText(ctx);
+  if (!hasDocumentPhoto(ctx) && !(text && isValidPassportFormat(text))) return sendService(ctx, data, MANUAL_PASSPORT_INVALID);
+  await ask(ctx, 'await_inn', data);
+  return advance(ctx, data, 'await_inn', { passportProvided: true });
+};
+
+/** Ручная проверка, шаг 2: ИНН или СНИЛС — текстом или фото. */
 const awaitInn: Step_ = async ({ ctx, data }) => {
-  const id = readText(ctx);
-  if (!id || !isValidIdFormat(id)) return sendService(ctx, data, MANUAL_ID_INVALID);
+  const text = readText(ctx);
+  if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return sendService(ctx, data, MANUAL_ID_INVALID);
   await deleteServiceMessages(ctx, data);
-  await demoVerify(ctx, 'формат ИНН / СНИЛС');
-  const updated = { ...data, verified: true };
+  await demoVerify(ctx, 'паспорт + ИНН / СНИЛС');
+  const updated = { ...data, verified: true, idDocumentProvided: true };
   const currentQuestionId = await ask(ctx, 'await_contact', updated);
-  return transition.goto('await_contact', { verified: true, currentQuestionId, serviceMessageIds: [] });
+  return transition.goto('await_contact', { verified: true, idDocumentProvided: true, currentQuestionId, serviceMessageIds: [] });
 };
 
 /** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
 function profileAnswers(data: ProfileData): ProfileAnswers {
-  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, verified, contact } = data;
-  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, verified, contact };
+  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, passportProvided, idDocumentProvided, verified, contact } = data;
+  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, passportProvided, idDocumentProvided, verified, contact };
 }
 
 const awaitContact: Step_ = async ({ ctx, data }) => {
@@ -700,6 +718,7 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
     await_salary_correction: awaitSalaryCorrection,
     await_salary_fix: awaitSalaryFix,
     await_verification: awaitVerification,
+    await_passport: awaitPassport,
     await_inn: awaitInn,
     await_contact: awaitContact,
     await_final_action: awaitFinalAction,

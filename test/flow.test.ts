@@ -13,6 +13,7 @@ interface FakeCtxOptions {
   callbackPayload?: string;
   location?: { latitude: number; longitude: number };
   messageId?: string;
+  photo?: boolean;
 }
 
 interface Edit {
@@ -30,7 +31,9 @@ function fakeCtx(options: FakeCtxOptions = {}) {
   let nextMid = 0;
   const isCallback = options.callbackPayload !== undefined;
   const ctx = {
-    message: isCallback ? undefined : { body: { text: options.text ?? null } },
+    message: isCallback
+      ? undefined
+      : { body: { text: options.text ?? null, attachments: options.photo ? [{ type: 'image', payload: {} }] : [] } },
     callback: isCallback ? { payload: options.callbackPayload } : undefined,
     location: options.location,
     chatId: 42,
@@ -116,7 +119,7 @@ test('ответ сворачивает вопрос в «Вопрос: отве
   assert.equal(stepOf(result), 'await_goal');
   assert.equal(edits.length, 1);
   assert.equal(edits[0].id, 'q1');
-  assert.ok(edits[0].text.startsWith('**Этап обучения:**'));
+  assert.ok(edits[0].text.startsWith('✅ **Этап обучения:**'));
   assert.ok(edits[0].keyboardText.includes('Изменить'));
   assert.ok(replies[0].includes('Что для тебя сейчас важнее'));
   assert.deepEqual(dataOf(result), {
@@ -127,9 +130,10 @@ test('ответ сворачивает вопрос в «Вопрос: отве
   });
 });
 
-test('в свёрнутом блоке нет зелёной галочки (не дублируется со значком варианта)', async () => {
+test('в свёрнутом блоке одна зелёная галочка — у варианта ответа своей нет', async () => {
   const { edits } = await runStep('await_experience', { goal: 'internship', currentQuestionId: 'q' }, { callbackPayload: 'exp_yes' });
-  assert.ok(!edits[0].text.includes('✅'));
+  assert.ok(edits[0].text.startsWith('✅ **Опыт:**'));
+  assert.equal(edits[0].text.split('✅').length - 1, 1);
 });
 
 test('«Изменить» остаётся только у последнего ответа — у предыдущего блока кнопка убирается', async () => {
@@ -306,13 +310,29 @@ test('верификация через Госуслуги — демо-пров
   assert.ok(replies.at(-1)!.includes('держать связь'));
 });
 
-test('ручной ввод: неверный формат отклоняется, СНИЛС с дефисами принимается', async () => {
+test('ручной ввод: сначала паспорт (обязательно), потом ИНН или СНИЛС', async () => {
   const manual = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_manual' });
-  assert.equal(stepOf(manual.result), 'await_inn');
-  const bad = await runStep('await_inn', {}, { text: '12345' });
+  assert.equal(stepOf(manual.result), 'await_passport');
+  assert.ok(manual.replies.at(-1)!.includes('паспорт'));
+
+  const badPassport = await runStep('await_passport', {}, { text: '12345' });
+  assert.equal(badPassport.result.type, 'stay');
+  const passport = await runStep('await_passport', {}, { text: '4512 345678' });
+  assert.equal(stepOf(passport.result), 'await_inn');
+  assert.equal(dataOf(passport.result).passportProvided, true);
+
+  const bad = await runStep('await_inn', { passportProvided: true }, { text: '12345' });
   assert.equal(bad.result.type, 'stay');
-  const good = await runStep('await_inn', {}, { text: '123-456-789 01' });
+  const good = await runStep('await_inn', { passportProvided: true }, { text: '123-456-789 01' });
   assert.equal(stepOf(good.result), 'await_contact');
+  assert.equal(dataOf(good.result).verified, true);
+});
+
+test('ручной ввод: фото документа принимается как есть (имитация)', async () => {
+  const passport = await runStep('await_passport', {}, { photo: true });
+  assert.equal(stepOf(passport.result), 'await_inn');
+  const id = await runStep('await_inn', { passportProvided: true }, { photo: true });
+  assert.equal(stepOf(id.result), 'await_contact');
 });
 
 test('связь → финал: сообщение «Это твоё начало!» с кнопками профиля и подборки', async () => {

@@ -22,6 +22,9 @@ export interface ProfileAnswers {
   /** Только для работы, если сработала корректировка завышенных ожиданий. */
   salaryRevision?: 'keep' | 'changed';
   verificationMethod?: string;
+  /** Сами номера и фото не храним — только факт, что документ предоставлен (демо). */
+  passportProvided?: boolean;
+  idDocumentProvided?: boolean;
   verified?: boolean;
   contact?: string;
 }
@@ -66,6 +69,7 @@ export type Step =
   | 'await_salary_correction'
   | 'await_salary_fix'
   | 'await_verification'
+  | 'await_passport'
   | 'await_inn'
   | 'await_contact'
   | 'await_final_action';
