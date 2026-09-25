@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { ScenarioState } from '@maxhub/max-bot-api';
+import type { Bot, ScenarioState } from '@maxhub/max-bot-api';
 import { careerScenario, needsSalaryCorrection } from '../src/dialog/flow.js';
-import type { BotContext, ProfileData, Step } from '../src/dialog/types.js';
+import type { BotContext, BotSession, ProfileData, Step } from '../src/dialog/types.js';
 import { isValidIdFormat, isValidInnFormat } from '../src/services/verification.js';
 import { matchVacancies } from '../src/services/matching.js';
 import { nearestCity } from '../src/services/geo.js';
-import { dueReminder, reminderMessage } from '../src/reminders.js';
+import { dueReminder, reminderMessage, sendDueReminders } from '../src/reminders.js';
 
 interface FakeCtxOptions {
   text?: string;
@@ -188,14 +188,31 @@ test('ответ из чужой ветки не принимается', async 
   assert.equal(result.type, 'stay');
 });
 
-test('после оплаты — «50% пройдено», при повторе (после «Изменить») не дублируется', async () => {
-  const first = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q' }, { callbackPayload: 'sal_50_80' });
-  assert.ok(first.replies[0].includes('середине пути'));
-  assert.ok(first.replies[1].includes('Какой формат'));
-  assert.equal(dataOf(first.result).midpointSent, true);
+test('после оплаты — «50% пройдено» с кнопкой «Продолжить», следующий вопрос не приходит', async () => {
+  const { result, replies } = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q' }, { callbackPayload: 'sal_50_80' });
+  assert.equal(stepOf(result), 'await_midpoint');
+  assert.equal(replies.length, 1);
+  assert.ok(replies[0].includes('середине пути'));
+  assert.equal(dataOf(result).currentQuestionId, 'm1');
+});
 
-  const again = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q', midpointSent: true }, { callbackPayload: 'sal_50_80' });
-  assert.equal(again.replies.length, 1);
+test('«Продолжить»: сообщение «50%» удаляется, приходит вопрос про формат', async () => {
+  const { result, replies, deleted } = await runStep('await_midpoint', { currentQuestionId: 'mid' }, { callbackPayload: 'continue' });
+  assert.deepEqual(deleted, ['mid']);
+  assert.ok(replies[0].includes('Какой формат'));
+  assert.equal(stepOf(result), 'await_work_format');
+  assert.equal(dataOf(result).midpointSent, true);
+});
+
+test('«50%» без нажатия «Продолжить» не пропускается', async () => {
+  const { result } = await runStep('await_midpoint', { currentQuestionId: 'mid' }, { text: 'дальше' });
+  assert.equal(result.type, 'stay');
+});
+
+test('после «Изменить» у оплаты «50%» не повторяется — сразу формат', async () => {
+  const { result, replies } = await runStep('await_salary', { goal: 'job', currentQuestionId: 'q', midpointSent: true }, { callbackPayload: 'sal_50_80' });
+  assert.equal(stepOf(result), 'await_work_format');
+  assert.ok(replies[0].includes('Какой формат'));
 });
 
 test('порядок: формат → переезд → переработки → мотивация', async () => {
@@ -317,26 +334,77 @@ test('финал: карточка профиля и подборка (отме�
 
 const MIN = 60 * 1000;
 
-test('напоминания: 3 минуты и час для недозаполненной анкеты', () => {
+test('напоминания: 30 минут и 2 часа для недозаполненной анкеты', () => {
   const t0 = 1_000_000;
-  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 2 * MIN), undefined);
-  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 3 * MIN), 'incomplete_3m');
-  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m'] }, t0 + 10 * MIN), undefined);
-  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m'] }, t0 + 60 * MIN), 'incomplete_1h');
-  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_3m', 'incomplete_1h'] }, t0 + 120 * MIN), undefined);
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 29 * MIN), undefined);
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0 }, t0 + 30 * MIN), 'incomplete_30m');
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_30m'] }, t0 + 60 * MIN), undefined);
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_30m'] }, t0 + 120 * MIN), 'incomplete_2h');
+  assert.equal(dueReminder('await_field', { lastActivityAt: t0, remindersSent: ['incomplete_30m', 'incomplete_2h'] }, t0 + 300 * MIN), undefined);
 });
 
 test('напоминания: для готового профиля — только пока подборку не открыли', () => {
   const t0 = 1_000_000;
-  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0 }, t0 + 3 * MIN), 'done_3m');
-  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0, offersViewed: true }, t0 + 60 * MIN), undefined);
+  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0 }, t0 + 30 * MIN), 'done_30m');
+  assert.equal(dueReminder('await_final_action', { lastActivityAt: t0, offersViewed: true }, t0 + 120 * MIN), undefined);
 });
 
-test('часовое напоминание: честное число подборок вместо «появилось за час»', () => {
-  const message = reminderMessage('incomplete_1h', { field: 'it', goal: 'job' });
+test('второе напоминание: честное число подборок вместо «появилось за час»', () => {
+  const message = reminderMessage('incomplete_2h', { field: 'it', goal: 'job' });
   assert.ok(!message.text.includes('[X]'));
   assert.ok(!message.text.includes('за этот час'));
   assert.equal(message.payload, 'resume');
+  assert.ok(reminderMessage('done_2h', {}).text.includes('два часа'));
+});
+
+function fakeReminderEnv(data: ProfileData, step: Step) {
+  const sessions = new Map<string, BotSession>([['7:42', { scenario: { id: 'career-navigator', step, data } }]]);
+  const store = {
+    keys: () => [...sessions.keys()],
+    get: (k: string) => sessions.get(k),
+    set: (k: string, v: BotSession) => void sessions.set(k, v),
+    delete: (k: string) => void sessions.delete(k),
+  };
+  const sent: Array<{ chatId: number; text: string }> = [];
+  const deletedIds: string[] = [];
+  const bot = {
+    api: {
+      sendMessageToChat: async (chatId: number, text: string) => {
+        sent.push({ chatId, text });
+        return {};
+      },
+      deleteMessage: async (id: string) => {
+        deletedIds.push(id);
+        return {};
+      },
+    },
+  };
+  return { sessions, store, sent, deletedIds, bot: bot as unknown as Bot<BotContext> };
+}
+
+test('напоминание удаляет вопрос без ответа и запоминает, что отправлено', async () => {
+  const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'q-open' }, 'await_field');
+  await sendDueReminders(env.bot, env.store, 1 + 30 * MIN);
+  assert.equal(env.sent.length, 1);
+  assert.equal(env.sent[0].chatId, 42);
+  assert.deepEqual(env.deletedIds, ['q-open']);
+  const data = env.sessions.get('7:42')!.scenario!.data as ProfileData;
+  assert.equal(data.currentQuestionId, undefined);
+  assert.deepEqual(data.remindersSent, ['incomplete_30m']);
+});
+
+test('напоминание о готовом профиле ничего не удаляет', async () => {
+  const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'final' }, 'await_final_action');
+  await sendDueReminders(env.bot, env.store, 1 + 30 * MIN);
+  assert.equal(env.sent.length, 1);
+  assert.deepEqual(env.deletedIds, []);
+});
+
+test('«Вернуться» после удалённого вопроса задаёт его заново', async () => {
+  const { result, deleted, replies } = await runIntercept('await_field', {}, { callbackPayload: 'resume' });
+  assert.deepEqual(deleted, []);
+  assert.ok(replies[0].includes('Какая сфера'));
+  assert.equal(dataOf(result).currentQuestionId, 'm1');
 });
 
 test('«Вернуться» из напоминания: старый вопрос удаляется и задаётся заново внизу чата', async () => {

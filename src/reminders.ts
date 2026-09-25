@@ -3,17 +3,19 @@ import { actionsKeyboard } from './keyboards.js';
 import { matchVacancies } from './services/matching.js';
 import type { BotContext, BotSession, ProfileData, Step } from './dialog/types.js';
 
-export type ReminderKind = 'incomplete_3m' | 'incomplete_1h' | 'done_3m' | 'done_1h';
+export type ReminderKind = 'incomplete_30m' | 'incomplete_2h' | 'done_30m' | 'done_2h';
 
 const MINUTE = 60 * 1000;
-const HOUR = 60 * MINUTE;
+const FIRST_REMINDER_MS = 30 * MINUTE;
+const SECOND_REMINDER_MS = 2 * 60 * MINUTE;
 
 /**
  * Какое напоминание пора отправить. Два набора:
  * — анкета не дозаполнена (любой шаг до финала);
  * — профиль готов, но подборку человек так и не открыл.
  * Каждое — один раз за период неактивности (любое действие пользователя сбрасывает счётчик).
- * Если бот был выключен и 3 минуты «проспали», сразу шлём только часовое.
+ * Первое — через 30 минут бездействия, второе — через 2 часа. Если бот был выключен
+ * и первое «проспали», сразу шлём только второе.
  */
 export function dueReminder(step: Step, data: ProfileData, now: number): ReminderKind | undefined {
   if (step === 'greet' || !data.lastActivityAt) return undefined;
@@ -21,15 +23,15 @@ export function dueReminder(step: Step, data: ProfileData, now: number): Reminde
   if (done && data.offersViewed) return undefined;
   const sent = data.remindersSent ?? [];
   const elapsed = now - data.lastActivityAt;
-  const [short, long]: ReminderKind[] = done ? ['done_3m', 'done_1h'] : ['incomplete_3m', 'incomplete_1h'];
-  if (elapsed >= HOUR) return sent.includes(long) ? undefined : long;
-  if (elapsed >= 3 * MINUTE && !sent.includes(short)) return short;
+  const [first, second]: ReminderKind[] = done ? ['done_30m', 'done_2h'] : ['incomplete_30m', 'incomplete_2h'];
+  if (elapsed >= SECOND_REMINDER_MS) return sent.includes(second) ? undefined : second;
+  if (elapsed >= FIRST_REMINDER_MS && !sent.includes(first)) return first;
   return undefined;
 }
 
 export function reminderMessage(kind: ReminderKind, data: ProfileData): { text: string; button: string; payload: string } {
   switch (kind) {
-    case 'incomplete_3m':
+    case 'incomplete_30m':
       return {
         text:
           '⏳ Пока ты отвлёкся(лась), твоё место в очереди просмотров сдвигается.\n\n' +
@@ -38,9 +40,9 @@ export function reminderMessage(kind: ReminderKind, data: ProfileData): { text: 
         button: '▶️ Вернуться и догнать остальных',
         payload: 'resume',
       };
-    case 'incomplete_1h': {
-      // В исходном тексте «за этот час прошло [X] новых подборок» — у нас нет данных о новых вакансиях
-      // за час, поэтому честно подставляем, сколько подходящих демо-подборок уже есть под параметры.
+    case 'incomplete_2h': {
+      // В исходном тексте «за этот час прошло [X] новых подборок» — данных о новых вакансиях за период
+      // у нас нет, поэтому честно подставляем, сколько подходящих демо-подборок уже есть под параметры.
       const count = matchVacancies(data, Number.MAX_SAFE_INTEGER).length;
       const hook =
         count > 0
@@ -55,7 +57,7 @@ export function reminderMessage(kind: ReminderKind, data: ProfileData): { text: 
         payload: 'resume',
       };
     }
-    case 'done_3m':
+    case 'done_30m':
       return {
         text:
           '👀 Твой профиль готов, но ты ещё не посмотрел(а) подборки!\n\n' +
@@ -63,10 +65,10 @@ export function reminderMessage(kind: ReminderKind, data: ProfileData): { text: 
         button: '📋 Открыть первые варианты',
         payload: 'offers',
       };
-    case 'done_1h':
+    case 'done_2h':
       return {
         text:
-          '⏰ Твой готовый профиль простаивает уже час.\n\n' +
+          '⏰ Твой готовый профиль простаивает уже два часа.\n\n' +
           'Пока ты вне бота, другие студенты с аналогичным профилем уже получают приглашения и нарабатывают опыт. Не теряй время — проверь, кто прямо сейчас ищет именно тебя!',
         button: '📋 Проверить подборку и статус',
         payload: 'offers',
@@ -94,6 +96,7 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
     const chatId = chatIdFromKey(key);
     if (!kind || chatId === undefined) continue;
     const message = reminderMessage(kind, data);
+
     try {
       await bot.api.sendMessageToChat(chatId, message.text, {
         attachments: [actionsKeyboard([{ label: message.button, payload: message.payload }])],
@@ -102,14 +105,25 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
       console.error('Не удалось отправить напоминание', key, kind, error);
       continue;
     }
+
+    // Анкета не дозаполнена: вопрос без ответа убираем из чата — «Вернуться» задаст его заново внизу.
+    // Удаляем только после успешной отправки, иначе человек остался бы и без вопроса, и без напоминания.
+    const dropQuestion = kind.startsWith('incomplete') && data.currentQuestionId;
+    if (dropQuestion) {
+      try {
+        await bot.api.deleteMessage(data.currentQuestionId!);
+      } catch (error) {
+        console.error('Не удалось удалить вопрос после напоминания (не критично)', key, error);
+      }
+    }
+
     // Перечитываем: пока шла отправка, пользователь мог ответить и сессия поменялась.
     const fresh = store.get(key);
     if (!fresh?.scenario) continue;
     const freshData = fresh.scenario.data as ProfileData;
-    store.set(key, {
-      ...fresh,
-      scenario: { ...fresh.scenario, data: { ...freshData, remindersSent: [...(freshData.remindersSent ?? []), kind] } },
-    });
+    const patch: Partial<ProfileData> = { remindersSent: [...(freshData.remindersSent ?? []), kind] };
+    if (dropQuestion && freshData.currentQuestionId === data.currentQuestionId) patch.currentQuestionId = undefined;
+    store.set(key, { ...fresh, scenario: { ...fresh.scenario, data: { ...freshData, ...patch } } });
   }
 }
 

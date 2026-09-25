@@ -24,6 +24,7 @@ import {
   JOB_SALARY_FIX_OPTIONS,
   MANUAL_ID_INVALID,
   MANUAL_ID_PROMPT,
+  MIDPOINT_CONTINUE_LABEL,
   MIDPOINT_MESSAGE,
   MOTIVATION_COUNT,
   MOTIVATION_OPTIONS,
@@ -92,6 +93,9 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
   'await_verification',
   'await_contact',
 ]);
+
+/** Шаги, чьё сообщение запоминается, чтобы удалить его («Изменить», напоминание, «Продолжить»). */
+const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_midpoint']);
 
 /** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
 const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
@@ -163,6 +167,8 @@ function questionView(step: Step, data: ProfileData): QuestionView {
       return { text: EMPLOYMENT_PROMPT, keyboard: autoKeyboard(options) };
     case 'await_salary':
       return { text: salaryPrompt(goal), keyboard: autoKeyboard(options) };
+    case 'await_midpoint':
+      return { text: MIDPOINT_MESSAGE, keyboard: actionsKeyboard([{ label: MIDPOINT_CONTINUE_LABEL, payload: 'continue' }]) };
     case 'await_work_format':
       return { text: WORK_FORMAT_PROMPT, keyboard: autoKeyboard(options) };
     case 'await_relocation':
@@ -287,7 +293,7 @@ async function ask(ctx: BotContext, step: Step, data: ProfileData): Promise<stri
     format: 'markdown',
     attachments: view.keyboard ? [view.keyboard] : undefined,
   });
-  return BLOCK_STEPS.has(step) ? message.body.mid : undefined;
+  return TRACKED_STEPS.has(step) ? message.body.mid : undefined;
 }
 
 /** Редактирование сообщения — некритично: ошибка не должна ломать сценарий. */
@@ -447,16 +453,18 @@ const awaitCity: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'city', { city: result.city, cityFromGeo: result.fromGeo }, 'await_field', { back: true });
 };
 
-const MIDPOINT_PAUSE_MS = 3500;
-
-/** После оплаты — промежуточное сообщение «50% пройдено» (один раз, при «Изменить» не повторяется). */
-async function sendMidpoint(ctx: BotContext, data: ProfileData): Promise<Partial<ProfileData>> {
-  if (data.midpointSent) return {};
-  await sendText(ctx, MIDPOINT_MESSAGE);
-  // Пауза, чтобы сообщение успели прочитать до следующего вопроса — иначе оно теряется в чате.
-  await new Promise((resolve) => setTimeout(resolve, MIDPOINT_PAUSE_MS));
-  return { midpointSent: true };
-}
+/**
+ * «50% пройдено» с кнопкой «Продолжить»: следующий вопрос приходит только по нажатию,
+ * а само сообщение удаляется, чтобы в чате оставалась цельная картина ответов.
+ * Показывается один раз — после «Изменить» у оплаты анкета идёт сразу к формату работы.
+ */
+const awaitMidpoint: Step_ = async ({ ctx, data }) => {
+  if (ctx.callback?.payload !== 'continue') return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  await deleteMessage(ctx, data.currentQuestionId);
+  const currentQuestionId = await ask(ctx, 'await_work_format', data);
+  return advance(ctx, data, 'await_work_format', { currentQuestionId, midpointSent: true });
+};
 
 /**
  * Корректировка завышенных ожиданий (только трек «Работа»): мало опыта или 1–2 курс,
@@ -645,7 +653,7 @@ async function resume(ctx: BotContext, step: Step, data: ProfileData): Promise<T
     await sendOffers(ctx, data);
     return transition.stay({ offersViewed: true });
   }
-  if (!BLOCK_STEPS.has(step)) {
+  if (!TRACKED_STEPS.has(step)) {
     await ask(ctx, step, data);
     return transition.stay();
   }
@@ -683,7 +691,8 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
     await_field: choiceStep('field', () => 'await_experience'),
     await_experience: choiceStep('experience', () => 'await_employment'),
     await_employment: choiceStep('employment', () => 'await_salary'),
-    await_salary: choiceStep('salary', () => 'await_work_format', { before: sendMidpoint }),
+    await_salary: choiceStep('salary', (d) => (d.midpointSent ? 'await_work_format' : 'await_midpoint')),
+    await_midpoint: awaitMidpoint,
     await_work_format: choiceStep('workFormat', () => 'await_relocation'),
     await_relocation: choiceStep('relocation', () => 'await_overtime'),
     await_overtime: choiceStep('overtime', () => 'await_motivation'),

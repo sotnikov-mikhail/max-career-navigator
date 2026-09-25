@@ -58,6 +58,7 @@ export type Step =
   | 'await_experience'
   | 'await_employment'
   | 'await_salary'
+  | 'await_midpoint'
   | 'await_work_format'
   | 'await_relocation'
   | 'await_overtime'
