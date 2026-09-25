@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Bot, ScenarioState } from '@maxhub/max-bot-api';
 import { careerScenario, needsSalaryCorrection } from '../src/dialog/flow.js';
 import type { BotContext, BotSession, ProfileData, Step } from '../src/dialog/types.js';
-import { isValidIdFormat, isValidInnFormat } from '../src/services/verification.js';
+import { isValidIdFormat, isValidInnFormat, missingPassportFields } from '../src/services/verification.js';
 import { nearestCity } from '../src/services/geo.js';
 import { dueReminder, reminderMessage, sendDueReminders } from '../src/reminders.js';
 
@@ -277,13 +277,15 @@ test('корректировка ЗП: после мотивации показ�
   assert.ok(replies[0].includes('Последний вопрос'));
 });
 
-test('корректировка ЗП: «Оставить как есть» — дальше к верификации', async () => {
-  const { result } = await runStep('await_salary_correction', { goal: 'job', currentQuestionId: 'c' }, { callbackPayload: 'keep_salary' });
+test('корректировка ЗП: «Оставить как есть» — сообщение корректировки удаляется, дальше верификация', async () => {
+  const { result, deleted, edits } = await runStep('await_salary_correction', { goal: 'job', currentQuestionId: 'c' }, { callbackPayload: 'keep_salary' });
   assert.equal(stepOf(result), 'await_verification');
   assert.equal(dataOf(result).salaryRevision, 'keep');
+  assert.deepEqual(deleted, ['c']);
+  assert.equal(edits.length, 0);
 });
 
-test('корректировка ЗП: «Изменить ответ» — вилки до 150 000, обновляется и ранний блок зарплаты', async () => {
+test('корректировка ЗП: «Изменить ответ» — вилки до 150 000, меняется только блок зарплаты в середине', async () => {
   const opened = await runStep('await_salary_correction', { goal: 'job', currentQuestionId: 'c' }, { callbackPayload: 'fix_salary' });
   assert.equal(stepOf(opened.result), 'await_salary_fix');
   assert.ok(opened.edits[0].keyboardText.includes('80 000 – 150 000'));
@@ -297,10 +299,10 @@ test('корректировка ЗП: «Изменить ответ» — ви�
   assert.equal(stepOf(fixed.result), 'await_verification');
   assert.equal(dataOf(fixed.result).salary, 'sal_50_80');
   assert.equal(dataOf(fixed.result).salaryRevision, 'changed');
-  assert.ok(fixed.edits.find((e) => e.id === 's')!.text.includes('50 000 – 80 000'));
+  assert.deepEqual(fixed.edits.map((e) => e.id), ['s']);
+  assert.ok(fixed.edits[0].text.includes('50 000 – 80 000'));
+  assert.deepEqual(fixed.deleted, ['c']);
 });
-
-// --- Верификация, связь, финал ----------------------------------------------
 
 test('верификация через Госуслуги — демо-проверка и вопрос о связи', async () => {
   const { result, replies } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_gosuslugi' });
@@ -310,34 +312,67 @@ test('верификация через Госуслуги — демо-пров
   assert.ok(replies.at(-1)!.includes('держать связь'));
 });
 
-test('ручной ввод: сначала паспорт (обязательно), потом ИНН или СНИЛС', async () => {
-  const manual = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_manual' });
-  assert.equal(stepOf(manual.result), 'await_passport');
-  assert.ok(manual.replies.at(-1)!.includes('паспорт'));
+test('ручной ввод: вопрос о способе превращается в подсказку шага 1, итога пока нет', async () => {
+  const { result, edits, replies } = await runStep('await_verification', { currentQuestionId: 'v' }, { callbackPayload: 'verify_manual' });
+  assert.equal(stepOf(result), 'await_passport');
+  assert.equal(replies.length, 0);
+  assert.equal(edits[0].id, 'v');
+  assert.ok(edits[0].text.includes('паспорт'));
+  assert.ok(edits[0].keyboardText.includes('Другой способ проверки'));
+  assert.ok(!/\d+ цифр/.test(edits[0].text));
+});
 
-  const badPassport = await runStep('await_passport', {}, { text: '12345' });
-  assert.equal(badPassport.result.type, 'stay');
-  const passport = await runStep('await_passport', {}, { text: '4512 345678' });
-  assert.equal(stepOf(passport.result), 'await_inn');
-  assert.equal(dataOf(passport.result).passportProvided, true);
+test('паспорт текстом: нужны все данные, бот называет, чего не хватает', async () => {
+  const partial = await runStep('await_passport', { currentQuestionId: 'v' }, { text: '4512 345678' });
+  assert.equal(partial.result.type, 'stay');
+  assert.ok(partial.replies[0].includes('код подразделения'));
+  assert.ok(partial.replies[0].includes('дата выдачи и дата рождения'));
 
+  const full = await runStep('await_passport', { currentQuestionId: 'v' }, { text: 'Серия и номер: 45 12 345678\nКем выдан: ГУ МВД России по г. Москве\nДата выдачи: 12.05.2020\nКод подразделения: 770-001\nДата рождения: 01.02.2004\nМесто рождения: гор. Москва\nАдрес регистрации: г. Москва, ул. Ленина, д. 1, кв. 2' });
+  assert.equal(stepOf(full.result), 'await_inn');
+  assert.equal(dataOf(full.result).passportProvided, true);
+  assert.ok(full.edits[0].text.includes('один документ на выбор'));
+});
+
+test('шаг 2: ИНН или СНИЛС номером, неверный номер отклоняется', async () => {
   const bad = await runStep('await_inn', { passportProvided: true }, { text: '12345' });
   assert.equal(bad.result.type, 'stay');
+  assert.ok(!/\d+ цифр/.test(bad.replies[0]));
   const good = await runStep('await_inn', { passportProvided: true }, { text: '123-456-789 01' });
   assert.equal(stepOf(good.result), 'await_contact');
   assert.equal(dataOf(good.result).verified, true);
 });
 
-test('после ручной проверки удаляются подсказки шагов и сообщения пользователя с документами', async () => {
+test('«Другой способ проверки» возвращает к выбору Госуслуги / Банк ID / вручную', async () => {
+  const { result, edits } = await runIntercept(
+    'await_inn',
+    { currentQuestionId: 'v', passportProvided: true, verificationMethod: 'verify_manual' },
+    { callbackPayload: 'change_verification' },
+  );
+  assert.equal(stepOf(result), 'await_verification');
+  assert.ok(edits[0].keyboardText.includes('Госуслуги'));
+  assert.equal(dataOf(result).passportProvided, undefined);
+});
+
+test('если вопрос шага убрало напоминание, подсказка следующего шага приходит новым сообщением', async () => {
+  const { result, replies } = await runStep('await_passport', {}, { photos: 2 });
+  assert.equal(stepOf(result), 'await_inn');
+  assert.ok(replies[0].includes('один документ на выбор'));
+  assert.equal(dataOf(result).currentQuestionId, 'm1');
+});
+
+test('после ручной проверки подсказка удаляется, итог «✅ Верификация» выводится после данных', async () => {
   const { result, deleted, replies } = await runStep(
     'await_inn',
-    { passportProvided: true, manualMessageIds: ['passport-prompt'], currentQuestionId: 'inn-prompt' },
+    { passportProvided: true, verificationMethod: 'verify_manual', manualMessageIds: ['passport-photo'], currentQuestionId: 'v' },
     { text: '1234567890', messageId: 'inn-text' },
   );
   assert.equal(stepOf(result), 'await_contact');
-  for (const id of ['passport-prompt', 'inn-prompt', 'inn-text']) assert.ok(deleted.includes(id), id);
-  // «Имитируем проверку» тоже удаляется, «Профиль подтверждён» не отправляется
-  assert.ok(deleted.includes('m1'));
+  for (const id of ['passport-photo', 'inn-text', 'v']) assert.ok(deleted.includes(id), id);
+  const recapIndex = replies.findIndex((r) => r.startsWith('✅ **Верификация:**'));
+  assert.ok(recapIndex >= 0);
+  assert.ok(replies[recapIndex].includes('Паспорт + ИНН / СНИЛС'));
+  assert.ok(replies[recapIndex + 1].includes('держать связь'));
   assert.ok(!replies.some((r) => r.includes('Профиль подтверждён')));
 });
 
@@ -512,6 +547,12 @@ test('служебные сообщения: правильный ответ у�
 });
 
 // --- Сервисы ----------------------------------------------------------------
+
+test('паспорт вручную: проверка полноты данных', () => {
+  assert.deepEqual(missingPassportFields('Серия и номер: 45 12 345678\nКем выдан: ГУ МВД России по г. Москве\nДата выдачи: 12.05.2020\nКод подразделения: 770-001\nДата рождения: 01.02.2004\nМесто рождения: гор. Москва\nАдрес регистрации: г. Москва, ул. Ленина, д. 1, кв. 2'), []);
+  assert.ok(missingPassportFields('').includes('серия и номер'));
+  assert.ok(missingPassportFields('4512 345678, 770-001, 12.05.2020').includes('дата выдачи и дата рождения'));
+});
 
 test('форматы ИНН и СНИЛС', () => {
   assert.equal(isValidInnFormat('1234567890'), true);

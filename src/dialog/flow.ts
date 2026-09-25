@@ -1,11 +1,12 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
 import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
-import { isValidIdFormat, isValidPassportFormat, runDemoVerification } from '../services/verification.js';
+import { isValidIdFormat, missingPassportFields, runDemoVerification } from '../services/verification.js';
 import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
 import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
 import type { BotContext, Goal, ProfileAnswers, ProfileData, Step } from './types.js';
 import {
   BACK_BUTTON_LABEL,
+  CHANGE_VERIFICATION_LABEL,
   CITY_EMPTY_PROMPT,
   CITY_PROMPT,
   CONTACT_OPTIONS,
@@ -22,7 +23,6 @@ import {
   JOB_SALARY_FIX_OPTIONS,
   MANUAL_ID_INVALID,
   MANUAL_ID_PROMPT,
-  MANUAL_PASSPORT_INVALID,
   MANUAL_PASSPORT_PROMPT,
   MANUAL_PASSPORT_SECOND_PAGE,
   MIDPOINT_CONTINUE_LABEL,
@@ -47,6 +47,7 @@ import {
   experienceOptions,
   experiencePrompt,
   invalidChoicePrompt,
+  manualPassportMissing,
   motivationPrompt,
   salaryOptions,
   salaryPrompt,
@@ -186,9 +187,9 @@ function questionView(step: Step, data: ProfileData): QuestionView {
     case 'await_verification':
       return { text: VERIFICATION_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_passport':
-      return { text: MANUAL_PASSPORT_PROMPT };
+      return { text: MANUAL_PASSPORT_PROMPT, keyboard: changeVerificationKeyboard() };
     case 'await_inn':
-      return { text: MANUAL_ID_PROMPT };
+      return { text: MANUAL_ID_PROMPT, keyboard: changeVerificationKeyboard() };
     case 'await_contact':
       return { text: CONTACT_PROMPT, keyboard: autoKeyboard(options) };
     case 'await_final_action':
@@ -269,6 +270,10 @@ function answerLabel(field: keyof ProfileAnswers, data: ProfileData): string {
 /** «✅ Вопрос: ответ». У самих вариантов ответа ✅ нет, так что галочка не дублируется. */
 function recapText(field: keyof ProfileAnswers, data: ProfileData): string {
   return `✅ **${fieldTitle(field, data)}:** ${answerLabel(field, data)}`;
+}
+
+function changeVerificationKeyboard(): Keyboard {
+  return actionsKeyboard([{ label: CHANGE_VERIFICATION_LABEL, payload: 'change_verification' }]);
 }
 
 function backKeyboard(): Keyboard {
@@ -515,11 +520,21 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'motivation', patch, next, { back: false });
 };
 
+/**
+ * Корректировка ЗП не оставляет следов в конце анкеты: сообщение удаляется в обоих случаях.
+ * При «Изменить ответ» новая сумма обновляет только блок с зарплатой в середине анкеты.
+ */
+async function finishSalaryCorrection(ctx: BotContext, data: ProfileData, patch: Partial<ProfileData>): Promise<Transition> {
+  await deleteMessage(ctx, data.currentQuestionId);
+  const currentQuestionId = await ask(ctx, 'await_verification', { ...data, ...patch });
+  return advance(ctx, data, 'await_verification', { ...patch, currentQuestionId });
+}
+
 const awaitSalaryCorrection: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   if (payload === 'keep_salary') {
     await acknowledgeCallback(ctx);
-    return answer(ctx, data, 'salaryRevision', { salaryRevision: 'keep' }, 'await_verification', { back: false });
+    return finishSalaryCorrection(ctx, data, { salaryRevision: 'keep' });
   }
   if (payload === 'fix_salary') {
     await acknowledgeCallback(ctx);
@@ -530,18 +545,18 @@ const awaitSalaryCorrection: Step_ = async ({ ctx, data }) => {
   return sendService(ctx, data, invalidChoicePrompt());
 };
 
-/** Новая сумма (до 150 000 ₽): обновляем и этот блок, и ранний блок с зарплатой выше по чату. */
+/** Новая сумма (до 150 000 ₽) — меняется только ранний блок с зарплатой. */
 const awaitSalaryFix: Step_ = async ({ ctx, data }) => {
   const option = JOB_SALARY_FIX_OPTIONS.find((o) => o.id === ctx.callback?.payload);
   if (!option) return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
   const patch: Partial<ProfileData> = { salary: option.id, salaryRevision: 'changed' };
   await editMessage(ctx, data.blockIds?.salary, recapText('salary', { ...data, ...patch }));
-  return answer(ctx, data, 'salary', patch, 'await_verification', { back: false });
+  return finishSalaryCorrection(ctx, data, patch);
 };
 
 /** «⏳ Проверяем…» видно только пока идёт проверка, потом сообщение удаляется —
- * итог остаётся одной строкой «✅ Верификация: …» в свёрнутом блоке. */
+ * итог остаётся одной строкой «✅ Верификация: …». */
 async function demoVerify(ctx: BotContext, methodLabel: string): Promise<void> {
   const processing = await ctx.reply(verificationProcessing(methodLabel), { format: 'markdown' });
   await runDemoVerification();
@@ -554,7 +569,9 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   await acknowledgeCallback(ctx);
   const patch: Partial<ProfileData> = { verificationMethod: option.id };
   if (option.id === 'verify_manual') {
-    return answer(ctx, data, 'verificationMethod', patch, 'await_passport', { back: false });
+    // Вопрос о способе превращается в подсказку шага 1; итог «✅ Верификация» появится после данных.
+    const currentQuestionId = await showInPlace(ctx, data, 'await_passport');
+    return advance(ctx, data, 'await_passport', { ...patch, currentQuestionId });
   }
   return answer(ctx, data, 'verificationMethod', patch, 'await_contact', {
     back: false,
@@ -595,36 +612,41 @@ function dataOf(result: Transition): Partial<ProfileData> {
 }
 
 /**
- * Ручная проверка, шаг 1: паспорт обязателен — фото двух разворотов (стр. 2–3 и 4–5,
- * одним сообщением или по очереди) или серия и номер текстом.
+ * Ручная проверка, шаг 1: паспорт обязателен — фото двух разворотов (стр. 2–3 и 4–5, одним
+ * сообщением или по очереди) или все данные текстом по шаблону. Подсказка шага — то же сообщение,
+ * где был вопрос о способе проверки: оно редактируется, а не копится в чате.
  */
 const awaitPassport: Step_ = async ({ ctx, data }) => {
-  const text = readText(ctx);
   const photos = (data.passportPhotos ?? 0) + documentPhotoCount(ctx);
-  const passportReady = photos >= PASSPORT_PAGES || Boolean(text && isValidPassportFormat(text));
-  if (!passportReady) {
-    if (photos === 0) return manualError(ctx, data, MANUAL_PASSPORT_INVALID);
-    // Пришёл один разворот — подтверждаем и ждём второй.
+  if (photos > 0 && photos < PASSPORT_PAGES) {
     return manualError(ctx, data, MANUAL_PASSPORT_SECOND_PAGE, { passportPhotos: photos });
   }
-  const manualMessageIds = [...withUserMessage(ctx, data), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
-  const currentQuestionId = await ask(ctx, 'await_inn', data);
-  return advance(ctx, data, 'await_inn', { passportProvided: true, passportPhotos: undefined, manualMessageIds, currentQuestionId });
+  if (photos === 0) {
+    const missing = missingPassportFields(readText(ctx) ?? '');
+    if (missing.length > 0) return manualError(ctx, data, manualPassportMissing(missing));
+  }
+  const currentQuestionId = await showInPlace(ctx, data, 'await_inn');
+  return advance(ctx, data, 'await_inn', {
+    currentQuestionId,
+    passportProvided: true,
+    passportPhotos: undefined,
+    manualMessageIds: withUserMessage(ctx, data),
+  });
 };
 
 /**
- * Ручная проверка, шаг 2: ИНН или СНИЛС — номером или фото. После проверки подсказки обоих шагов
- * и присланные документы удаляются: остаётся «✅ Верификация: 📝 Паспорт + ИНН / СНИЛС».
- * Удалить сообщения пользователя MAX может не позволить — тогда они останутся, отказ будет в логе.
+ * Ручная проверка, шаг 2: ИНН или СНИЛС — номером или фото. После проверки подсказка шага удаляется,
+ * а уже после присланных данных выводится «✅ Верификация: 📝 Паспорт + ИНН / СНИЛС».
+ * Сообщения пользователя с документами пробуем удалить — MAX может не позволить, отказ будет в логе.
  */
 const awaitInn: Step_ = async ({ ctx, data }) => {
   const text = readText(ctx);
   if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return manualError(ctx, data, MANUAL_ID_INVALID);
   await deleteServiceMessages(ctx, data);
-  const toDelete = [...withUserMessage(ctx, data), ...(data.currentQuestionId ? [data.currentQuestionId] : [])];
-  for (const id of toDelete) await deleteMessage(ctx, id);
+  for (const id of [...withUserMessage(ctx, data), data.currentQuestionId]) await deleteMessage(ctx, id);
   await demoVerify(ctx, 'паспорт + ИНН / СНИЛС');
-  const updated = { ...data, verified: true, idDocumentProvided: true };
+  const updated: ProfileData = { ...data, verified: true, idDocumentProvided: true };
+  await sendText(ctx, recapText('verificationMethod', updated));
   const currentQuestionId = await ask(ctx, 'await_contact', updated);
   return transition.goto('await_contact', {
     verified: true,
@@ -634,6 +656,33 @@ const awaitInn: Step_ = async ({ ctx, data }) => {
     serviceMessageIds: [],
   });
 };
+
+/**
+ * Показывает вопрос шага на месте текущего сообщения (редактирует его). Если сообщения уже нет —
+ * например, его убрало напоминание, — присылает новое. Возвращает id сообщения с вопросом.
+ */
+async function showInPlace(ctx: BotContext, data: ProfileData, step: Step): Promise<string | undefined> {
+  if (!data.currentQuestionId) return ask(ctx, step, data);
+  const view = questionView(step, data);
+  await editMessage(ctx, data.currentQuestionId, view.text, view.keyboard);
+  return data.currentQuestionId;
+}
+
+/** «🔄 Другой способ проверки» на шагах ручной проверки: возвращаемся к выбору способа. */
+async function changeVerification(ctx: BotContext, data: ProfileData): Promise<Transition> {
+  await acknowledgeCallback(ctx);
+  await deleteServiceMessages(ctx, data);
+  for (const id of data.manualMessageIds ?? []) await deleteMessage(ctx, id);
+  const currentQuestionId = await showInPlace(ctx, data, 'await_verification');
+  return transition.goto('await_verification', {
+    currentQuestionId,
+    verificationMethod: undefined,
+    passportProvided: undefined,
+    passportPhotos: undefined,
+    manualMessageIds: undefined,
+    serviceMessageIds: [],
+  });
+}
 
 /** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
 function profileAnswers(data: ProfileData): ProfileAnswers {
@@ -730,6 +779,9 @@ async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promis
   const payload = ctx.callback?.payload;
   if (payload === 'back') return goBack(ctx, data);
   if (payload === 'resume') return resume(ctx, step, data);
+  if (payload === 'change_verification' && (step === 'await_passport' || step === 'await_inn')) {
+    return changeVerification(ctx, data);
+  }
   return undefined;
 }
 

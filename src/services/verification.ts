@@ -8,9 +8,20 @@ export function isValidInnFormat(input: string): boolean {
   return /^\d{10}$/.test(digitsOnly) || /^\d{12}$/.test(digitsOnly);
 }
 
-/** Паспорт РФ: серия (4 цифры) + номер (6 цифр), пробелы допускаются. */
-export function isValidPassportFormat(input: string): boolean {
-  return /^\d{10}$/.test(input.replace(/\s/g, ''));
+/**
+ * Паспорт вручную: каких обязательных данных не хватает в сообщении. Проверяем то, что можно узнать
+ * по формату: серию и номер, код подразделения, две даты (выдачи и рождения); «кем выдан», место
+ * рождения и адрес — по объёму текста. Пустой список — всё на месте.
+ */
+export function missingPassportFields(input: string): string[] {
+  const missing: string[] = [];
+  if (!/(^|\D)\d{2}\s?\d{2}\s?\d{6}(\D|$)/.test(input)) missing.push('серия и номер');
+  if (!/(^|\D)\d{3}-\d{3}(\D|$)/.test(input)) missing.push('код подразделения');
+  const dates = input.match(/\d{2}\.\d{2}\.\d{4}/g) ?? [];
+  if (dates.length < 2) missing.push('дата выдачи и дата рождения');
+  const words = input.replace(/[\d.:-]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
+  if (words.length < 8) missing.push('кем выдан, место рождения и адрес регистрации');
+  return missing;
 }
 
 /** СНИЛС: 11 цифр, допускаются пробелы и дефисы (формат 123-456-789 01). */
