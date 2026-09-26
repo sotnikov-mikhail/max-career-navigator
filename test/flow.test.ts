@@ -169,6 +169,14 @@ test('«Изменить» с чужого сообщения игнорируе
   assert.deepEqual(deleted, []);
 });
 
+test('двойное нажатие или кнопка старого вопроса — молча игнорируются, без «выбери вариант»', async () => {
+  const data: ProfileData = { currentQuestionId: 'q3' };
+  const { result, replies, notifications } = await runIntercept('await_field', data, { callbackPayload: 'job', messageId: 'q2' });
+  assert.equal(result!.type, 'stay');
+  assert.deepEqual(replies, []);
+  assert.deepEqual(notifications, ['']);
+});
+
 test('после «Изменить» и нового ответа удалённый вопрос приходит заново', async () => {
   const { result, replies, edits } = await runStep(
     'await_study_stage',

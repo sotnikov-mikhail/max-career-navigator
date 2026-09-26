@@ -1,7 +1,7 @@
 import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
 import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
 import { isValidIdFormat, missingPassportFields, runDemoVerification } from '../services/verification.js';
-import { submitToLaborExchangeMock } from '../services/laborExchangeMock.js';
+import { submitProfileMock } from '../services/profileRegistryMock.js';
 import { KNOWN_CITIES, MAX_CITY_DISTANCE_KM, cityById, nearestCity } from '../services/geo.js';
 import type { BotContext, Goal, ProfileAnswers, ProfileData, Step } from './types.js';
 import {
@@ -732,7 +732,7 @@ const awaitContact: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'contact', { contact: option.id }, 'await_final_action', {
     back: false,
     before: async (_ctx, updated) => {
-      submitToLaborExchangeMock(ctx.chatId ?? 0, profileAnswers(updated));
+      submitProfileMock(ctx.chatId ?? 0, profileAnswers(updated));
       return { completedAt: Date.now() };
     },
   });
@@ -796,7 +796,7 @@ async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
   });
 }
 
-/** Кнопка из напоминания: переспрашиваем текущий вопрос внизу чата (старый удаляем) или показываем подборку. */
+/** Кнопка из напоминания: переспрашиваем текущий вопрос внизу чата (старый удаляем). */
 async function resume(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition> {
   await acknowledgeCallback(ctx);
   if (step === 'await_final_action') return transition.stay();
@@ -809,9 +809,17 @@ async function resume(ctx: BotContext, step: Step, data: ProfileData): Promise<T
   return transition.stay({ currentQuestionId });
 }
 
+/** Кнопки, которые живут не на сообщении текущего вопроса: у блока, в напоминании, в финале. */
+const OWN_MESSAGE_PAYLOADS: ReadonlySet<string> = new Set(['back', 'resume', 'profile', 'change_verification']);
+
 async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promise<Transition | undefined> {
   if (!ctx.has('message_callback')) return undefined;
   const payload = ctx.callback?.payload;
+  // Кнопка не из текущего вопроса (двойное нажатие, старое сообщение) — молча подтверждаем, без «выбери вариант».
+  if (payload && !OWN_MESSAGE_PAYLOADS.has(payload) && data.currentQuestionId && ctx.messageId && ctx.messageId !== data.currentQuestionId) {
+    await acknowledgeCallback(ctx);
+    return transition.stay();
+  }
   if (payload === 'back') return goBack(ctx, data);
   if (payload === 'resume') return resume(ctx, step, data);
   if (payload === 'change_verification' && (step === 'await_bank' || step === 'await_passport' || step === 'await_inn')) {
@@ -823,7 +831,7 @@ async function intercept(ctx: BotContext, step: Step, data: ProfileData): Promis
 export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   id: 'career-navigator',
   initialStep: 'greet',
-  // Долгий таймаут: напоминания приходят через 3 минуты и через час, а кнопки финала должны работать и позже.
+  // Долгий таймаут: напоминания приходят через 30 минут и через 2 часа, а кнопки финала должны работать и позже.
   idleTimeoutMs: 7 * 24 * 60 * 60 * 1000,
   createData: () => ({}),
   intercept: ({ ctx, state, data }) => intercept(ctx, state.step, data),
