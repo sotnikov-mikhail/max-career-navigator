@@ -106,14 +106,15 @@ export function experiencePrompt(goal: Goal): string {
 
 // 6. Текущая занятость
 export const EMPLOYMENT_OPTIONS: ChoiceOption[] = [
-  { id: 'free', label: '🆓 Свободен(на)' },
-  { id: 'study_10_20h', label: '⏱️ Учусь, 10–20 часов в неделю' },
-  { id: 'side_job', label: '🧩 Учусь и подрабатываю' },
-  { id: 'full_time', label: '💼 Ищу полную загрузку' },
+  { id: 'hours_lt_10', label: '⏱️ До 10 часов' },
+  { id: 'hours_10_20', label: '🕐 10–20 часов' },
+  { id: 'hours_20_30', label: '🕒 20–30 часов' },
+  { id: 'full_time', label: '💼 Полная занятость' },
+  { id: 'hours_unknown', label: '🤔 Пока не знаю' },
 ];
 
 export const EMPLOYMENT_PROMPT =
-  '⏰ Понял! Большинство студентов начинают совмещать практику с учёбой уже с первых курсов. А как у тебя сейчас с занятостью?';
+  '⏰ Понял! Большинство студентов начинают совмещать практику с учёбой уже с первых курсов. Сколько времени в неделю ты готов(а) уделять работе или стажировке?';
 
 // 7. Ожидания по оплате — ветки расходятся
 export const INTERNSHIP_PAY_OPTIONS: ChoiceOption[] = [

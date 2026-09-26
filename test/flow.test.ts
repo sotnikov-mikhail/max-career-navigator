@@ -593,3 +593,15 @@ test('nearestCity: Краснодар в списке городов', () => {
   assert.equal(city.name, 'Краснодар');
   assert.ok(distanceKm < 10);
 });
+
+test('занятость: спрашиваем часы в неделю, в блоке — «Готов(а) уделять»', async () => {
+  const { result, edits, replies } = await runStep(
+    'await_employment',
+    { name: 'Аня', goal: 'internship', currentQuestionId: 'q7' },
+    { callbackPayload: 'hours_10_20' },
+  );
+  assert.equal(stepOf(result), 'await_salary');
+  assert.equal(dataOf(result).employment, 'hours_10_20');
+  assert.ok(edits.find((e) => e.id === 'q7')!.text.includes('Готов(а) уделять:** 🕐 10–20 часов'));
+  assert.ok(replies.length === 1);
+});

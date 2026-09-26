@@ -225,7 +225,7 @@ const FIELD_TITLES: Partial<Record<keyof ProfileAnswers, string>> = {
   city: 'Город',
   field: 'Сфера',
   experience: 'Опыт',
-  employment: 'Занятость',
+  employment: 'Готов(а) уделять',
   workFormat: 'Формат работы',
   relocation: 'Переезд',
   overtime: 'Переработки',
