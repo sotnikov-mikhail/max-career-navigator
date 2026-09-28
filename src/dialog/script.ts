@@ -176,7 +176,7 @@ export const RELOCATION_PROMPT = '🧳 Готов(а) к переезду, ес�
 // 11. Переработки и жёсткие сроки
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
   { id: 'ready_100', label: '💯 Готов(а) на все 100%' },
-  { id: 'ready_sometimes', label: '👌 Изредка, ценю баланс' },
+  { id: 'ready_sometimes', label: '🌓 Изредка, ценю баланс' },
   { id: 'strict_schedule', label: '📅 Строго по графику' },
 ];
 
