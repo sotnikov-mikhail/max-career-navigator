@@ -5,19 +5,35 @@ import { RESTART_HINT } from './dialog/script.js';
 import type { BotContext, BotSession, ProfileData } from './dialog/types.js';
 import { startReminders } from './reminders.js';
 import { FileSessionStore } from './session/fileStore.js';
+import { deleteSubmissionsForChat } from './services/profileRegistryMock.js';
 
 const bot = new Bot<BotContext>(config.botToken);
 const scenarios = new ScenarioEngine<BotContext>();
 scenarios.register(careerScenario);
 const store = new FileSessionStore<BotSession>(config.sessionsFile);
 
-const info = await bot.api.getMyInfo();
+/** Сеть до MAX может быть недоступна в момент старта — не падаем, а повторяем попытку. */
+async function getMyInfoWithRetry(): Promise<Awaited<ReturnType<typeof bot.api.getMyInfo>>> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await bot.api.getMyInfo();
+    } catch (error) {
+      const delay = Math.min(60, 5 * attempt);
+      console.error(`Не удалось подключиться к MAX (попытка ${attempt}), повтор через ${delay} с`, (error as Error).message);
+      await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+    }
+  }
+}
+
+const info = await getMyInfoWithRetry();
 console.log(`Бот @${info.username} авторизован, запускаю long polling...`);
 
+// Меню команд — некритично: при сбое сети бот всё равно запускается.
 await bot.api.setMyCommands([
   { name: 'start', description: 'Начать заново' },
   { name: 'cancel', description: 'Отменить текущий шаг' },
-]);
+  { name: 'delete_data', description: 'Отозвать согласие и удалить мои данные' },
+]).catch((error) => console.error('Не удалось обновить меню команд (не критично)', (error as Error).message));
 
 bot.use(session<BotSession, BotContext>({ store }));
 
@@ -36,6 +52,14 @@ bot.use(async (ctx, next) => {
 });
 
 bot.use(scenarios.controllerMiddleware());
+
+// Отзыв согласия на обработку персональных данных (152-ФЗ): удаляем сессию и заявки этого чата.
+bot.command('delete_data', async (ctx) => {
+  ctx.scenario.cancel();
+  ctx.session = undefined;
+  if (ctx.chatId != null) deleteSubmissionsForChat(ctx.chatId);
+  await ctx.reply('🗑 Согласие отозвано, твои данные удалены. Чтобы начать заново, напиши /start.');
+});
 
 bot.command('cancel', async (ctx) => {
   const canceled = ctx.scenario.cancel();

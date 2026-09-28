@@ -29,6 +29,14 @@ function readSubmissions(): SubmissionRecord[] {
   }
 }
 
+/** Отзыв согласия: удаляет все заявки этого чата. Возвращает, сколько записей удалено. */
+export function deleteSubmissionsForChat(chatId: number): number {
+  const submissions = readSubmissions();
+  const kept = submissions.filter((r) => r.chatId !== chatId);
+  if (kept.length !== submissions.length) writeFileAtomic(config.submissionsFile, JSON.stringify(kept, null, 2));
+  return submissions.length - kept.length;
+}
+
 export function submitProfileMock(chatId: number, profile: ProfileAnswers): SubmissionRecord {
   const record: SubmissionRecord = {
     submittedAt: new Date().toISOString(),

@@ -9,6 +9,12 @@ import {
   BANK_OPTIONS,
   BANK_PROMPT,
   CHANGE_VERIFICATION_LABEL,
+  CONSENT_DECLINED,
+  CONSENT_FULL_TEXT,
+  CONSENT_NO_LABEL,
+  CONSENT_RECAP,
+  CONSENT_TEXT_LABEL,
+  CONSENT_YES_LABEL,
   CITY_EMPTY_PROMPT,
   CITY_PROMPT,
   CONTACT_OPTIONS,
@@ -48,6 +54,7 @@ import {
   WORK_FORMAT_OPTIONS,
   WORK_FORMAT_PROMPT,
   cityTooFarPrompt,
+  consentPrompt,
   experienceOptions,
   experiencePrompt,
   invalidChoicePrompt,
@@ -99,7 +106,7 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
 ]);
 
 /** Шаги, чьё сообщение запоминается, чтобы удалить его («Изменить», напоминание, «Продолжить»). */
-const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_midpoint', 'await_passport', 'await_inn']);
+const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_consent', 'await_midpoint', 'await_passport', 'await_inn']);
 
 /** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
 const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
@@ -158,6 +165,8 @@ function questionView(step: Step, data: ProfileData): QuestionView {
   const goal = goalOf(data);
   const options = stepOptions(step, data);
   switch (step) {
+    case 'await_consent':
+      return { text: consentPrompt(data.pendingName), keyboard: consentKeyboard(true) };
     case 'await_name':
       return { text: NAME_QUESTION };
     case 'await_study_stage':
@@ -455,6 +464,46 @@ const greet: Step_ = async ({ ctx }) => {
   return transition.goto('await_name');
 };
 
+function consentKeyboard(withText: boolean): Keyboard {
+  return actionsKeyboard([
+    { label: CONSENT_YES_LABEL, payload: 'consent_yes' },
+    ...(withText ? [{ label: CONSENT_TEXT_LABEL, payload: 'consent_text' }] : []),
+    { label: CONSENT_NO_LABEL, payload: 'consent_no' },
+  ]);
+}
+
+/**
+ * Согласие на обработку персональных данных — отдельное сообщение до первого вопроса анкеты.
+ * «Полный текст» разворачивает то же сообщение, «Не согласен(на)» объясняет, почему без согласия нельзя,
+ * и оставляет кнопку согласия. После согласия сообщение сворачивается в строку, дата сохраняется.
+ */
+const awaitConsent: Step_ = async ({ ctx, data }) => {
+  const payload = ctx.callback?.payload;
+  if (payload === 'consent_text') {
+    await acknowledgeCallback(ctx);
+    await editMessage(ctx, data.currentQuestionId, CONSENT_FULL_TEXT, consentKeyboard(false));
+    return transition.stay();
+  }
+  if (payload === 'consent_no') {
+    // Отказ: имя, полученное до согласия, стираем.
+    await acknowledgeCallback(ctx);
+    await editMessage(ctx, data.currentQuestionId, CONSENT_DECLINED, actionsKeyboard([{ label: CONSENT_YES_LABEL, payload: 'consent_yes' }]));
+    return transition.stay({ pendingName: undefined });
+  }
+  if (payload !== 'consent_yes') return sendService(ctx, data, invalidChoicePrompt());
+  await acknowledgeCallback(ctx);
+  await editMessage(ctx, data.currentQuestionId, CONSENT_RECAP);
+  const consent: Partial<ProfileData> = { consentAt: Date.now(), pendingName: undefined };
+  if (!data.pendingName) {
+    // Согласились после отказа — имя было стёрто, спрашиваем заново.
+    await sendText(ctx, NAME_QUESTION);
+    return advance(ctx, data, 'await_name', { ...consent, currentQuestionId: undefined });
+  }
+  const name = data.pendingName;
+  const currentQuestionId = await ask(ctx, 'await_study_stage', { ...data, name });
+  return advance(ctx, data, 'await_study_stage', { ...consent, name, currentQuestionId });
+};
+
 /**
  * Имя: одно–три слова из букв, дефиса и апострофа, до 40 символов. Защищает карточку профиля от
  * случайно вставленного или пересланного длинного текста.
@@ -467,6 +516,11 @@ const awaitName: Step_ = async ({ ctx, data }) => {
   const name = readText(ctx)?.replace(/\s+/g, ' ');
   if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
   if (!isValidName(name)) return sendService(ctx, data, NAME_INVALID_PROMPT);
+  if (!data.consentAt) {
+    // До согласия имя не сохраняем в профиль — держим отдельно и сразу просим согласие.
+    const currentQuestionId = await ask(ctx, 'await_consent', { ...data, pendingName: name });
+    return advance(ctx, data, 'await_consent', { pendingName: name, currentQuestionId });
+  }
   const updated = { ...data, name };
   const currentQuestionId = await ask(ctx, 'await_study_stage', updated);
   return advance(ctx, data, 'await_study_stage', { name, currentQuestionId });
@@ -742,8 +796,8 @@ async function changeVerification(ctx: BotContext, data: ProfileData): Promise<T
 
 /** Только ответы пользователя — служебное состояние диалога в заявку не попадает. */
 function profileAnswers(data: ProfileData): ProfileAnswers {
-  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact } = data;
-  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact };
+  const { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact, consentAt } = data;
+  return { name, studyStage, goal, city, field, experience, employment, salary, workFormat, relocation, overtime, motivation, salaryRevision, verificationMethod, bank, passportProvided, idDocumentProvided, verified, contact, consentAt };
 }
 
 const awaitContact: Step_ = async ({ ctx, data }) => {
@@ -910,6 +964,7 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
   intercept: ({ ctx, state, data }) => intercept(ctx, state.step, data),
   steps: {
     greet,
+    await_consent: awaitConsent,
     await_name: awaitName,
     await_study_stage: choiceStep('studyStage', () => 'await_goal'),
     await_goal: choiceStep('goal', () => 'await_city'),

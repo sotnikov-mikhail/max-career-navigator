@@ -101,7 +101,7 @@ test('имя: пустое — служебное сообщение и stay', a
 });
 
 test('имя: задаётся вопрос об этапе обучения, его id запоминается', async () => {
-  const { result, replies } = await runStep('await_name', {}, { text: 'Аня' });
+  const { result, replies } = await runStep('await_name', { consentAt: 1 }, { text: 'Аня' });
   assert.equal(stepOf(result), 'await_study_stage');
   assert.deepEqual(dataOf(result), { name: 'Аня', currentQuestionId: 'm1' });
   assert.ok(replies[0].includes('Аня'));
@@ -659,7 +659,49 @@ test('имя: принимаем 1–3 слова из букв, длинный 
   const bad = await runStep('await_name', {}, { text: '📝 Последний вопрос\n\nДавай честно…' });
   assert.equal(bad.result.type, 'stay');
   assert.ok(bad.replies[0].includes('только имя'));
-  const ok = await runStep('await_name', {}, { text: '  Аня  ' });
+  const ok = await runStep('await_name', { consentAt: 1 }, { text: '  Аня  ' });
   assert.equal(stepOf(ok.result), 'await_study_stage');
   assert.equal(dataOf(ok.result).name, 'Аня');
+});
+
+test('согласие на ПДн: сразу после имени отдельным сообщением; имя сохраняется только после согласия', async () => {
+  const start = await runStep('greet', {}, {});
+  assert.equal(stepOf(start.result), 'await_name');
+  assert.ok(start.replies[0].includes('Как тебя зовут'));
+
+  const named = await runStep('await_name', {}, { text: 'Аня' });
+  assert.equal(stepOf(named.result), 'await_consent');
+  assert.equal(dataOf(named.result).name, undefined, 'до согласия имя в профиль не пишется');
+  assert.equal(dataOf(named.result).pendingName, 'Аня');
+  assert.ok(named.replies[0].includes('Аня, мы заботимся о твоих данных и соблюдаем законодательство'));
+  assert.ok(named.replies[0].includes('/delete_data'));
+
+  const pending: ProfileData = { pendingName: 'Аня', currentQuestionId: 'c' };
+  const full = await runStep('await_consent', pending, { callbackPayload: 'consent_text' });
+  const fullText = full.edits.find((e) => e.id === 'c')!.text;
+  for (const part of ['Оператор', 'Цель', 'Данные', 'Действия', 'Срок', 'Отзыв', '/delete_data']) assert.ok(fullText.includes(part), part);
+
+  const no = await runStep('await_consent', pending, { callbackPayload: 'consent_no' });
+  assert.equal(no.result.type, 'stay');
+  assert.ok('pendingName' in dataOf(no.result) && dataOf(no.result).pendingName === undefined, 'при отказе имя стёрто');
+  assert.ok(no.edits[0].keyboardText.includes('Даю согласие'));
+
+  const text = await runStep('await_consent', pending, { text: 'привет' });
+  assert.equal(text.result.type, 'stay');
+
+  const yes = await runStep('await_consent', pending, { callbackPayload: 'consent_yes' });
+  assert.equal(stepOf(yes.result), 'await_study_stage');
+  assert.equal(dataOf(yes.result).name, 'Аня');
+  assert.equal(typeof dataOf(yes.result).consentAt, 'number');
+  assert.equal(yes.edits[0].hasKeyboard, false);
+  assert.ok(yes.replies.at(-1)!.includes('Приятно познакомиться'));
+
+  const afterRefusal = await runStep('await_consent', { currentQuestionId: 'c' }, { callbackPayload: 'consent_yes' });
+  assert.equal(stepOf(afterRefusal.result), 'await_name', 'после отказа и согласия имя спрашиваем заново');
+  const again = await runStep('await_name', { consentAt: 1 }, { text: 'Аня' });
+  assert.equal(stepOf(again.result), 'await_study_stage', 'повторно согласие не спрашиваем');
+});
+
+test('напоминаний до согласия нет', () => {
+  assert.equal(dueReminder('await_consent', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });

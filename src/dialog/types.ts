@@ -29,6 +29,8 @@ export interface ProfileAnswers {
   idDocumentProvided?: boolean;
   verified?: boolean;
   contact?: string;
+  /** Когда получено согласие на обработку персональных данных (мс) — подтверждение факта согласия. */
+  consentAt?: number;
 }
 
 /** Служебное состояние диалога — в заявку не попадает. */
@@ -39,6 +41,8 @@ export interface DialogState {
   blockIds?: Partial<Record<keyof ProfileAnswers, string>>;
   /** Последний ответ, у которого сейчас висит кнопка «Изменить». */
   lastAnswered?: keyof ProfileAnswers;
+  /** Имя до согласия на обработку данных: в профиль попадает только после согласия, при отказе стирается. */
+  pendingName?: string;
   /** Выбор в мультивыборе мотивации до нажатия «Готово». */
   motivationDraft?: string[];
   /** Сколько фото разворотов паспорта уже прислали (нужно два: стр. 2–3 и 4–5). */
@@ -58,6 +62,7 @@ export type ProfileData = ProfileAnswers & DialogState;
 
 export type Step =
   | 'greet'
+  | 'await_consent'
   | 'await_name'
   | 'await_study_stage'
   | 'await_goal'
