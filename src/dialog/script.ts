@@ -166,14 +166,7 @@ export const WORK_FORMAT_OPTIONS: ChoiceOption[] = [
   { id: 'project', label: '📌 Проектная работа' },
 ];
 
-export const WORK_FORMAT_PROMPT =
-  '🏠 Какой формат занятости идеален для твоего текущего расписания?\n\n' +
-  quote(
-    'Удалёнка — интернет и результат\n' +
-      'Гибрид — пара дней в офисе, остальное дома\n' +
-      'Очно — на предприятии / в офисе, команда и погружение на месте\n' +
-      'Проектная работа — разовые задачи',
-  );
+export const WORK_FORMAT_PROMPT = '🏠 Какой формат работы тебе подходит?';
 
 // 10. Переезд
 export const RELOCATION_OPTIONS: ChoiceOption[] = [
