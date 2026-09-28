@@ -674,17 +674,15 @@ test('согласие на ПДн: сразу после имени отдел�
   assert.equal(dataOf(named.result).name, undefined, 'до согласия имя в профиль не пишется');
   assert.equal(dataOf(named.result).pendingName, 'Аня');
   assert.ok(named.replies[0].includes('Аня, мы заботимся о твоих данных и соблюдаем законодательство'));
-  assert.ok(named.replies[0].includes('/delete_data'));
+  assert.ok(named.replies[0].includes('всегда можешь отозвать это согласие'));
+  assert.ok(!named.replies[0].includes('/delete_data'), 'в первом тексте без команды');
 
   const pending: ProfileData = { pendingName: 'Аня', currentQuestionId: 'c' };
   const full = await runStep('await_consent', pending, { callbackPayload: 'consent_text' });
   const fullText = full.edits.find((e) => e.id === 'c')!.text;
   for (const part of ['Оператор', 'Цель', 'Данные', 'Действия', 'Срок', 'Отзыв', '/delete_data']) assert.ok(fullText.includes(part), part);
 
-  const no = await runStep('await_consent', pending, { callbackPayload: 'consent_no' });
-  assert.equal(no.result.type, 'stay');
-  assert.ok('pendingName' in dataOf(no.result) && dataOf(no.result).pendingName === undefined, 'при отказе имя стёрто');
-  assert.ok(no.edits[0].keyboardText.includes('Даю согласие'));
+  assert.ok(!named.replies.join().includes('Не согласен'));
 
   const text = await runStep('await_consent', pending, { text: 'привет' });
   assert.equal(text.result.type, 'stay');
@@ -697,7 +695,7 @@ test('согласие на ПДн: сразу после имени отдел�
   assert.ok(yes.replies.at(-1)!.includes('Приятно познакомиться'));
 
   const afterRefusal = await runStep('await_consent', { currentQuestionId: 'c' }, { callbackPayload: 'consent_yes' });
-  assert.equal(stepOf(afterRefusal.result), 'await_name', 'после отказа и согласия имя спрашиваем заново');
+  assert.equal(stepOf(afterRefusal.result), 'await_name', 'без имени — спрашиваем заново');
   const again = await runStep('await_name', { consentAt: 1 }, { text: 'Аня' });
   assert.equal(stepOf(again.result), 'await_study_stage', 'повторно согласие не спрашиваем');
 });

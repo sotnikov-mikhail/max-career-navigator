@@ -9,9 +9,7 @@ import {
   BANK_OPTIONS,
   BANK_PROMPT,
   CHANGE_VERIFICATION_LABEL,
-  CONSENT_DECLINED,
   CONSENT_FULL_TEXT,
-  CONSENT_NO_LABEL,
   CONSENT_RECAP,
   CONSENT_TEXT_LABEL,
   CONSENT_YES_LABEL,
@@ -468,14 +466,13 @@ function consentKeyboard(withText: boolean): Keyboard {
   return actionsKeyboard([
     { label: CONSENT_YES_LABEL, payload: 'consent_yes' },
     ...(withText ? [{ label: CONSENT_TEXT_LABEL, payload: 'consent_text' }] : []),
-    { label: CONSENT_NO_LABEL, payload: 'consent_no' },
   ]);
 }
 
 /**
- * Согласие на обработку персональных данных — отдельное сообщение до первого вопроса анкеты.
- * «Полный текст» разворачивает то же сообщение, «Не согласен(на)» объясняет, почему без согласия нельзя,
- * и оставляет кнопку согласия. После согласия сообщение сворачивается в строку, дата сохраняется.
+ * Согласие на обработку персональных данных — отдельное сообщение сразу после имени.
+ * «Полный текст» разворачивает то же сообщение; после «Даю согласие» оно сворачивается в строку,
+ * дата согласия сохраняется. Без согласия анкета дальше не идёт.
  */
 const awaitConsent: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
@@ -484,18 +481,12 @@ const awaitConsent: Step_ = async ({ ctx, data }) => {
     await editMessage(ctx, data.currentQuestionId, CONSENT_FULL_TEXT, consentKeyboard(false));
     return transition.stay();
   }
-  if (payload === 'consent_no') {
-    // Отказ: имя, полученное до согласия, стираем.
-    await acknowledgeCallback(ctx);
-    await editMessage(ctx, data.currentQuestionId, CONSENT_DECLINED, actionsKeyboard([{ label: CONSENT_YES_LABEL, payload: 'consent_yes' }]));
-    return transition.stay({ pendingName: undefined });
-  }
   if (payload !== 'consent_yes') return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
   await editMessage(ctx, data.currentQuestionId, CONSENT_RECAP);
   const consent: Partial<ProfileData> = { consentAt: Date.now(), pendingName: undefined };
   if (!data.pendingName) {
-    // Согласились после отказа — имя было стёрто, спрашиваем заново.
+    // Имени нет (например, старая сессия) — спрашиваем заново.
     await sendText(ctx, NAME_QUESTION);
     return advance(ctx, data, 'await_name', { ...consent, currentQuestionId: undefined });
   }
