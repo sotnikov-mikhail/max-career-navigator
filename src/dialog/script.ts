@@ -84,11 +84,11 @@ export const FIELD_PROMPT =
 // 5. Опыт — ветки расходятся
 export const INTERNSHIP_EXPERIENCE_OPTIONS: ChoiceOption[] = [
   { id: 'exp_yes', label: '💪 Да, есть' },
-  { id: 'exp_no', label: '🌱 Опыта нет' },
+  { id: 'exp_no', label: '🔰 Опыта нет' },
 ];
 
 export const JOB_EXPERIENCE_OPTIONS: ChoiceOption[] = [
-  { id: 'exp_0_1', label: '🌱 0–1 год' },
+  { id: 'exp_0_1', label: '🔰 0–1 год' },
   { id: 'exp_2_3', label: '📈 2–3 года' },
   { id: 'exp_4_5', label: '💪 4–5 лет' },
   { id: 'exp_5p', label: '🏆 5+ лет' },
