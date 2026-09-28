@@ -605,3 +605,12 @@ test('занятость: спрашиваем часы в неделю, в бл
   assert.ok(edits.find((e) => e.id === 'q7')!.text.includes('Готов(а) уделять:** 🕐 10–20 часов'));
   assert.ok(replies.length === 1);
 });
+
+test('карточка профиля: эмодзи в начале каждой строки, мотивация с общим значком', async () => {
+  const { profileCard } = await import('../src/dialog/flow.js');
+  const card = profileCard({ name: 'Гера', goal: 'job', studyStage: 'uni_1_2', salary: 'sal_50_80', motivation: ['skills', 'high_income'], verified: true });
+  assert.ok(card.includes('**Гера** · ✅ подтверждён'));
+  assert.ok(card.includes('📘 **Этап обучения:** Вуз, 1–2 курс'));
+  assert.ok(card.includes('📈 **Ожидания по зарплате:** 50 000 – 80 000 ₽ / мес'));
+  assert.ok(card.includes('✨ **Мотивация:** Развитие новых навыков, Высокий доход на старте'));
+});

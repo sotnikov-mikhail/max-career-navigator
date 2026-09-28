@@ -1,4 +1,4 @@
-import { defineScenario, transition, type ScenarioStep } from '@maxhub/max-bot-api';
+import { defineScenario, fmt, transition, type ScenarioStep } from '@maxhub/max-bot-api';
 import { actionsKeyboard, autoKeyboard, choiceKeyboard, cityKeyboard, multiKeyboard } from '../keyboards.js';
 import { isValidIdFormat, missingPassportFields, runDemoVerification } from '../services/verification.js';
 import { submitProfileMock } from '../services/profileRegistryMock.js';
@@ -753,10 +753,47 @@ const PROFILE_FIELDS: Array<keyof ProfileAnswers> = [
   'contact',
 ];
 
+/** Значок строки карточки, если у ответа своего эмодзи нет (зарплата, город, мотивация и т. п.). */
+const FIELD_ICONS: Partial<Record<keyof ProfileAnswers, string>> = {
+  studyStage: '🎓',
+  goal: '🎯',
+  city: '📍',
+  field: '🧩',
+  experience: '🧭',
+  employment: '⏱️',
+  salary: '📈',
+  workFormat: '🏠',
+  relocation: '🧳',
+  overtime: '🏁',
+  motivation: '✨',
+  contact: '💬',
+};
+
+const LEADING_EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s+/u;
+
+/**
+ * Строка карточки «эмодзи **Поле:** ответ». Эмодзи ответа (с нажатой кнопки) выносится в начало строки —
+ * значки встают ровным столбиком слева, и карточка выглядит выровненной.
+ */
+function profileLine(field: keyof ProfileAnswers, data: ProfileData): string {
+  if (field === 'motivation') {
+    // Несколько вариантов — у строки общий значок, эмодзи отдельных вариантов убираем.
+    const items = (Array.isArray(data.motivation) ? data.motivation : []).map((id) =>
+      labelOf(MOTIVATION_OPTIONS, id).replace(LEADING_EMOJI, ''),
+    );
+    return `${FIELD_ICONS.motivation} **${fieldTitle(field, data)}:** ${items.join(', ') || '—'}`;
+  }
+  const answer = answerLabel(field, data);
+  const match = answer.match(LEADING_EMOJI);
+  const icon = match?.[1] ?? FIELD_ICONS[field] ?? '•';
+  const text = match ? answer.slice(match[0].length) : answer;
+  return `${icon} **${fieldTitle(field, data)}:** ${text}`;
+}
+
 export function profileCard(data: ProfileData): string {
-  const lines = PROFILE_FIELDS.map((field) => `**${fieldTitle(field, data)}:** ${answerLabel(field, data)}`);
   const status = data.verified ? '✅ подтверждён' : '⏳ не подтверждён';
-  return `# 🪪 Мой профиль\n\n**Имя:** ${data.name ?? '—'}\n${lines.join('\n')}\n\n**Статус:** ${status}`;
+  const lines = PROFILE_FIELDS.map((field) => profileLine(field, data));
+  return `# 🪪 Мой профиль\n\n${fmt.bold(fmt.escape(data.name ?? '—'))} · ${status}\n\n${lines.join('\n')}`;
 }
 
 const awaitFinalAction: Step_ = async ({ ctx, data }) => {
