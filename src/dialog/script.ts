@@ -158,7 +158,7 @@ export const MIDPOINT_MESSAGE =
 
 export const MIDPOINT_CONTINUE_LABEL = '▶️ Продолжить';
 
-// 9. Формат работы
+// 9. Формат занятости
 export const WORK_FORMAT_OPTIONS: ChoiceOption[] = [
   { id: 'remote', label: '🏠 Удалёнка' },
   { id: 'hybrid', label: '🔀 Гибрид (офис + дом)' },
@@ -167,7 +167,7 @@ export const WORK_FORMAT_OPTIONS: ChoiceOption[] = [
 ];
 
 export const WORK_FORMAT_PROMPT =
-  '🏠 Какой формат идеален для твоего текущего расписания?\n\n' +
+  '🏠 Какой формат занятости идеален для твоего текущего расписания?\n\n' +
   quote(
     'Удалёнка — интернет и результат\n' +
       'Гибрид — пара дней в офисе, остальное дома\n' +
