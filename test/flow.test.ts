@@ -429,10 +429,10 @@ test('шаг 2: фото ИНН или СНИЛС принимается как 
   assert.equal(stepOf(result), 'await_contact');
 });
 
-test('связь → финал: сообщение «Это твоё начало!» с кнопками профиля и подборки', async () => {
+test('связь → финал: сообщение «профиль готов» с кнопкой профиля', async () => {
   const { result, replies } = await runStep('await_contact', { name: 'Аня', currentQuestionId: 'k' }, { callbackPayload: 'contact_online' });
   assert.equal(stepOf(result), 'await_final_action');
-  assert.ok(replies.at(-1)!.includes('Это твоё начало'));
+  assert.ok(replies.at(-1)!.includes('профиль готов'));
   assert.ok(typeof dataOf(result).completedAt === 'number');
 });
 
@@ -445,7 +445,7 @@ test('финал: кнопка открывает карточку профил�
 
 test('финальное сообщение без слова «демо»', async () => {
   const { replies } = await runStep('await_contact', { currentQuestionId: 'k' }, { callbackPayload: 'contact_offline' });
-  assert.ok(replies.at(-1)!.includes('Это твоё начало'));
+  assert.ok(replies.at(-1)!.includes('профиль готов'));
   assert.ok(!/демо/i.test(replies.at(-1)!));
 });
 
