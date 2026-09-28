@@ -302,7 +302,7 @@ export const CONTACT_OPTIONS: ChoiceOption[] = [
   { id: 'contact_offline', label: '🤝 Офлайн' },
 ];
 
-export const CONTACT_PROMPT = '💬 Отлично, данные приняты! Как тебе удобнее держать связь с экспертами нашей карьерной платформы?';
+export const CONTACT_PROMPT = '💬 Отлично, данные приняты! Как тебе удобнее держать связь?';
 
 export const FINAL_MESSAGE =
   `# 🚀 Это твоё начало!\n\n` +
