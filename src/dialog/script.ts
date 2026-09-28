@@ -160,7 +160,7 @@ export const MIDPOINT_CONTINUE_LABEL = '▶️ Продолжить';
 
 // 9. Формат занятости
 export const WORK_FORMAT_OPTIONS: ChoiceOption[] = [
-  { id: 'remote', label: '🏠 Удалёнка' },
+  { id: 'remote', label: '🌐 Удалёнка' },
   { id: 'hybrid', label: '🔀 Гибрид (офис + дом)' },
   { id: 'onsite', label: '🏢 Очно' },
   { id: 'project', label: '📌 Проектная работа' },
