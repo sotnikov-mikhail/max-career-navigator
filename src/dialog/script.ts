@@ -118,15 +118,15 @@ export const EMPLOYMENT_PROMPT =
 
 // 7. Ожидания по оплате — ветки расходятся
 export const INTERNSHIP_PAY_OPTIONS: ChoiceOption[] = [
-  { id: 'intern_paid', label: '💰 Оплачиваемая' },
+  { id: 'intern_paid', label: '💳 Оплачиваемая' },
   { id: 'intern_unpaid', label: '🤝 Без оплаты' },
 ];
 
 export const JOB_SALARY_OPTIONS: ChoiceOption[] = [
-  { id: 'sal_30_50', label: '💵 30 000 – 50 000 ₽ / мес' },
-  { id: 'sal_50_80', label: '💶 50 000 – 80 000 ₽ / мес' },
-  { id: 'sal_80_150', label: '💷 80 000 – 150 000 ₽ / мес' },
-  { id: 'sal_150_300', label: '💰 150 000 – 300 000 ₽ / мес' },
+  { id: 'sal_30_50', label: '🌱 30 000 – 50 000 ₽ / мес' },
+  { id: 'sal_50_80', label: '🌿 50 000 – 80 000 ₽ / мес' },
+  { id: 'sal_80_150', label: '🌳 80 000 – 150 000 ₽ / мес' },
+  { id: 'sal_150_300', label: '🏔️ 150 000 – 300 000 ₽ / мес' },
   { id: 'sal_300p', label: '💎 От 300 000 ₽ / мес' },
 ];
 
@@ -143,10 +143,10 @@ export function salaryTitle(goal: Goal): string {
 
 export function salaryPrompt(goal: Goal): string {
   if (goal === 'internship') {
-    return '💰 Рассматриваешь только оплачиваемые стажировки или готов(а) начать и с неоплачиваемой ради опыта?';
+    return '💳 Рассматриваешь только оплачиваемые стажировки или готов(а) начать и с неоплачиваемой ради опыта?';
   }
   return (
-    '💰 На какой доход в месяц рассчитываешь?\n\n' +
+    '📈 На какой доход в месяц рассчитываешь?\n\n' +
     quote('Подсказка: работодатели ценят реальную оценку своего времени и готовность расти вместе с задачами.')
   );
 }
@@ -202,8 +202,8 @@ export const OVERTIME_PROMPT =
 export const MOTIVATION_COUNT = 2;
 
 export const MOTIVATION_OPTIONS: ChoiceOption[] = [
-  { id: 'pay_now', label: '💸 Оплата сейчас' },
-  { id: 'high_income', label: '💰 Высокий доход на старте' },
+  { id: 'pay_now', label: '💳 Оплата сейчас' },
+  { id: 'high_income', label: '📈 Высокий доход на старте' },
   { id: 'growth', label: '🚀 Карьерный рост' },
   { id: 'atmosphere', label: '😊 Здоровая атмосфера' },
   { id: 'team', label: '🤝 Крутая команда' },
@@ -236,7 +236,7 @@ export const SALARY_CORRECTION_OPTIONS: ChoiceOption[] = [
   { id: 'keep_salary', label: '➡️ Оставить как есть' },
 ];
 
-export const SALARY_FIX_PROMPT = '💰 Какие у тебя зарплатные ожидания? Выбери новую сумму — до 150 000 ₽';
+export const SALARY_FIX_PROMPT = '📈 Какие у тебя зарплатные ожидания? Выбери новую сумму — до 150 000 ₽';
 
 // 14. Верификация
 export const VERIFICATION_OPTIONS: ChoiceOption[] = [
