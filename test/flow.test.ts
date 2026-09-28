@@ -617,3 +617,12 @@ test('карточка профиля: эмодзи в начале каждой
   assert.ok(card.includes('📈 **Ожидания по зарплате:** 50 000 – 80 000 ₽ / мес'));
   assert.ok(card.includes('✨ **Мотивация:** Развитие новых навыков, Высокий доход на старте'));
 });
+
+test('стажировка: после формата работы вопрос о переезде пропускается', async () => {
+  const intern = await runStep('await_work_format', { name: 'Аня', goal: 'internship', currentQuestionId: 'q9' }, { callbackPayload: 'remote' });
+  assert.equal(stepOf(intern.result), 'await_overtime');
+  const job = await runStep('await_work_format', { name: 'Аня', goal: 'job', currentQuestionId: 'q9' }, { callbackPayload: 'remote' });
+  assert.equal(stepOf(job.result), 'await_relocation');
+  const { profileCard } = await import('../src/dialog/flow.js');
+  assert.ok(!profileCard({ name: 'Аня', goal: 'internship' }).includes('Переезд'));
+});

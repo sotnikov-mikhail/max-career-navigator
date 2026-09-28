@@ -793,7 +793,8 @@ function profileLine(field: keyof ProfileAnswers, data: ProfileData): string {
 
 export function profileCard(data: ProfileData): string {
   const status = data.verified ? '✅ подтверждён' : '⏳ не подтверждён';
-  const lines = PROFILE_FIELDS.map((field) => profileLine(field, data));
+  const fields = PROFILE_FIELDS.filter((field) => !(field === 'relocation' && goalOf(data) === 'internship'));
+  const lines = fields.map((field) => profileLine(field, data));
   return `# 🪪 Мой профиль\n\n${fmt.bold(fmt.escape(data.name ?? '—'))} · ${status}\n\n${lines.join('\n')}\n\n${PROFILE_FOOTER}`;
 }
 
@@ -886,7 +887,8 @@ export const careerScenario = defineScenario<BotContext, ProfileData>()<Step>({
     await_employment: choiceStep('employment', () => 'await_salary'),
     await_salary: choiceStep('salary', (d) => (d.midpointSent ? 'await_work_format' : 'await_midpoint')),
     await_midpoint: awaitMidpoint,
-    await_work_format: choiceStep('workFormat', () => 'await_relocation'),
+    // Для стажировки вопрос о переезде не задаём.
+    await_work_format: choiceStep('workFormat', (d) => (goalOf(d) === 'internship' ? 'await_overtime' : 'await_relocation')),
     await_relocation: choiceStep('relocation', () => 'await_overtime'),
     await_overtime: choiceStep('overtime', () => 'await_motivation'),
     await_motivation: awaitMotivation,
