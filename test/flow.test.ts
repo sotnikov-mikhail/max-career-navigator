@@ -370,13 +370,15 @@ test('шаг 2: ИНН или СНИЛС номером, неверный ном
 });
 
 test('«Другой способ проверки» возвращает к выбору Госуслуги / Банк ID / вручную', async () => {
-  const { result, edits } = await runIntercept(
+  const { result, replies, deleted } = await runIntercept(
     'await_inn',
     { currentQuestionId: 'v', passportProvided: true, verificationMethod: 'verify_manual' },
     { callbackPayload: 'change_verification' },
   );
   assert.equal(stepOf(result), 'await_verification');
-  assert.ok(edits[0].keyboardText.includes('Госуслуги'));
+  assert.ok(deleted.includes('v'), 'старое сообщение шага удалено');
+  assert.ok(replies.at(-1)!.includes('способ верификации'), 'выбор способа пришёл новым сообщением внизу');
+  assert.equal(dataOf(result).currentQuestionId, 'm1');
   assert.equal(dataOf(result).passportProvided, undefined);
 });
 

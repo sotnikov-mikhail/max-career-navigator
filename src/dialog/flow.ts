@@ -716,7 +716,9 @@ async function changeVerification(ctx: BotContext, data: ProfileData): Promise<T
   await acknowledgeCallback(ctx);
   await deleteServiceMessages(ctx, data);
   for (const id of data.manualMessageIds ?? []) await deleteMessage(ctx, id);
-  const currentQuestionId = await showInPlace(ctx, data, 'await_verification');
+  // Выбор способа — заново внизу чата: выше могут остаться фото документов, которые бот удалить не может.
+  await deleteMessage(ctx, data.currentQuestionId);
+  const currentQuestionId = await ask(ctx, 'await_verification', data);
   return transition.goto('await_verification', {
     currentQuestionId,
     verificationMethod: undefined,
