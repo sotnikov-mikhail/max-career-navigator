@@ -45,7 +45,7 @@ export function studyStagePrompt(name: string | undefined): string {
 
 // 2. Цель (развилка)
 export const GOAL_OPTIONS: ChoiceOption[] = [
-  { id: 'internship', label: '🎓 Стажировка' },
+  { id: 'internship', label: '🧑‍🎓 Стажировка' },
   { id: 'job', label: '💼 Работа' },
 ];
 
@@ -70,7 +70,7 @@ export const FIELD_OPTIONS: ChoiceOption[] = [
   { id: 'engineering', label: '⚙️ Инженерия и производство' },
   { id: 'economics', label: '📊 Экономика и финансы' },
   { id: 'marketing', label: '📣 Маркетинг, PR и медиа' },
-  { id: 'service', label: '🤝 Сервис, продажи, логистика' },
+  { id: 'service', label: '🛒 Сервис, продажи, логистика' },
   { id: 'humanities', label: '📚 Гуманитарная и соц. сфера' },
   { id: 'law', label: '⚖️ Право и администрирование' },
   { id: 'design', label: '🎨 Дизайн и творчество' },
@@ -83,13 +83,13 @@ export const FIELD_PROMPT =
 
 // 5. Опыт — ветки расходятся
 export const INTERNSHIP_EXPERIENCE_OPTIONS: ChoiceOption[] = [
-  { id: 'exp_yes', label: '💪 Да, есть' },
-  { id: 'exp_no', label: '🎒 Опыта нет' },
+  { id: 'exp_yes', label: '👍 Да, есть' },
+  { id: 'exp_no', label: '🆕 Опыта нет' },
 ];
 
 export const JOB_EXPERIENCE_OPTIONS: ChoiceOption[] = [
   { id: 'exp_0_1', label: '🎒 0–1 год' },
-  { id: 'exp_2_3', label: '📈 2–3 года' },
+  { id: 'exp_2_3', label: '⭐ 2–3 года' },
   { id: 'exp_4_5', label: '💪 4–5 лет' },
   { id: 'exp_5p', label: '🏆 5+ лет' },
 ];
@@ -109,7 +109,7 @@ export const EMPLOYMENT_OPTIONS: ChoiceOption[] = [
   { id: 'hours_lt_10', label: '⏱️ До 10 часов' },
   { id: 'hours_10_20', label: '🕐 10–20 часов' },
   { id: 'hours_20_30', label: '🕒 20–30 часов' },
-  { id: 'full_time', label: '💼 Полная занятость' },
+  { id: 'full_time', label: '🕘 Полная занятость' },
   { id: 'hours_unknown', label: '🤔 Пока не знаю' },
 ];
 
@@ -119,7 +119,7 @@ export const EMPLOYMENT_PROMPT =
 // 7. Ожидания по оплате — ветки расходятся
 export const INTERNSHIP_PAY_OPTIONS: ChoiceOption[] = [
   { id: 'intern_paid', label: '💳 Оплачиваемая' },
-  { id: 'intern_unpaid', label: '🤝 Без оплаты' },
+  { id: 'intern_unpaid', label: '🆓 Без оплаты' },
 ];
 
 export const JOB_SALARY_OPTIONS: ChoiceOption[] = [
@@ -176,28 +176,28 @@ export const RELOCATION_PROMPT = '🧳 Готов(а) к переезду, ес�
 // 11. Переработки и жёсткие сроки
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
   { id: 'ready_100', label: '💯 Готов(а) на все 100%' },
-  { id: 'ready_sometimes', label: '⚖️ Изредка, ценю баланс' },
+  { id: 'ready_sometimes', label: '👌 Изредка, ценю баланс' },
   { id: 'strict_schedule', label: '📅 Строго по графику' },
 ];
 
-export const OVERTIME_PROMPT = '🏁 Перед сдачей проекта нагрузка иногда растёт. Как ты к этому относишься?';
+export const OVERTIME_PROMPT = '🔋 Перед сдачей проекта нагрузка иногда растёт. Как ты к этому относишься?';
 
 // 12. Мотивация — ровно два варианта: после второго анкета идёт дальше сама
 export const MOTIVATION_COUNT = 2;
 
 export const MOTIVATION_OPTIONS: ChoiceOption[] = [
-  { id: 'pay_now', label: '💳 Оплата сейчас' },
+  { id: 'pay_now', label: '⚡ Оплата сейчас' },
   { id: 'high_income', label: '📈 Высокий доход на старте' },
   { id: 'growth', label: '🚀 Карьерный рост' },
   { id: 'atmosphere', label: '☀️ Здоровая атмосфера' },
-  { id: 'team', label: '🤝 Крутая команда' },
-  { id: 'flexible_schedule', label: '🗓️ Гибкий график' },
-  { id: 'official', label: '🏛️ Официальное трудоустройство' },
+  { id: 'team', label: '👥 Крутая команда' },
+  { id: 'flexible_schedule', label: '↔️ Гибкий график' },
+  { id: 'official', label: '📑 Официальное трудоустройство' },
   { id: 'real_cases', label: '🛠️ Реальные кейсы' },
   { id: 'mentor', label: '🧑‍🏫 Сильный наставник' },
-  { id: 'remote_or_near', label: '🏠 Удалёнка / рядом с домом' },
-  { id: 'skills', label: '📚 Развитие новых навыков' },
-  { id: 'big_company', label: '🏢 Опыт в крупной компании' },
+  { id: 'remote_or_near', label: '🚶 Удалёнка / рядом с домом' },
+  { id: 'skills', label: '🧠 Развитие новых навыков' },
+  { id: 'big_company', label: '🏙️ Опыт в крупной компании' },
 ];
 
 export function motivationPrompt(selected: number): string {
@@ -282,7 +282,7 @@ export function verificationProcessing(methodLabel: string): string {
 
 // 15. Коммуникация и финал
 export const CONTACT_OPTIONS: ChoiceOption[] = [
-  { id: 'contact_online', label: '💻 Онлайн' },
+  { id: 'contact_online', label: '📱 Онлайн' },
   { id: 'contact_offline', label: '🤝 Офлайн' },
 ];
 

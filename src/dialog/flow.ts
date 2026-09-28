@@ -112,6 +112,7 @@ const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
   workFormat: 'await_work_format',
   relocation: 'await_relocation',
   overtime: 'await_overtime',
+  motivation: 'await_motivation',
 };
 
 /** Варианты ответа для шага с выбором (для проверки payload). */
@@ -521,9 +522,13 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   const id = payload?.startsWith('multi:') ? payload.slice('multi:'.length) : undefined;
   if (!id || !MOTIVATION_OPTIONS.some((o) => o.id === id)) return sendService(ctx, data, invalidChoicePrompt());
-  await acknowledgeCallback(ctx);
-
   const draft = data.motivationDraft ?? [];
+  if (!draft.includes(id) && draft.length >= MOTIVATION_COUNT) {
+    // Уже отмечено два (после «Изменить») — третий не добавляем, просим сначала снять отметку.
+    await acknowledgeCallback(ctx, 'Сначала сними одну из отметок');
+    return transition.stay();
+  }
+  await acknowledgeCallback(ctx);
   const motivationDraft = draft.includes(id) ? draft.filter((x) => x !== id) : [...draft, id];
   if (motivationDraft.length < MOTIVATION_COUNT) {
     const view = questionView('await_motivation', { ...data, motivationDraft });
@@ -532,8 +537,10 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
   }
 
   const patch: Partial<ProfileData> = { motivation: motivationDraft, motivationDraft: undefined };
-  const next: Step = needsSalaryCorrection({ ...data, ...patch }) ? 'await_salary_correction' : 'await_verification';
-  return answer(ctx, data, 'motivation', patch, next, { back: false });
+  // Корректировку показываем один раз: после «Изменить» у мотивации повторно её не спрашиваем.
+  const correction = !data.salaryRevision && needsSalaryCorrection({ ...data, ...patch });
+  const next: Step = correction ? 'await_salary_correction' : 'await_verification';
+  return answer(ctx, data, 'motivation', patch, next, { back: true });
 };
 
 /**
@@ -584,6 +591,7 @@ const awaitVerification: Step_ = async ({ ctx, data }) => {
   if (!option) return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
   const patch: Partial<ProfileData> = { verificationMethod: option.id };
+  if (option.id !== 'verify_gosuslugi') Object.assign(patch, await dropBackButton(ctx, data));
   if (option.id === 'verify_bankid') {
     // Сначала выбор банка — в том же сообщении, где был вопрос о способе.
     const currentQuestionId = await showInPlace(ctx, data, 'await_bank');
@@ -765,7 +773,7 @@ const FIELD_ICONS: Partial<Record<keyof ProfileAnswers, string>> = {
   salary: '📈',
   workFormat: '🏠',
   relocation: '🧳',
-  overtime: '🏁',
+  overtime: '🔋',
   motivation: '✨',
   contact: '💬',
 };
@@ -819,6 +827,16 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
  * в вопрос с вариантами. После нового ответа блок снова сворачивается, а удалённый вопрос
  * приходит заново — это делает обычный `answer`.
  */
+/**
+ * Убирает «Изменить» у последнего ответа, когда дальше идут шаги, из которых назад не возвращаемся
+ * (выбор банка, ручная проверка документов).
+ */
+async function dropBackButton(ctx: BotContext, data: ProfileData): Promise<Partial<ProfileData>> {
+  if (!data.lastAnswered) return {};
+  await editMessage(ctx, data.blockIds?.[data.lastAnswered], recapText(data.lastAnswered, data));
+  return { lastAnswered: undefined };
+}
+
 async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
   await acknowledgeCallback(ctx);
   const field = data.lastAnswered;
@@ -827,12 +845,14 @@ async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
   if (!field || !blockId || !step || ctx.messageId !== blockId) return transition.stay();
   await deleteMessage(ctx, data.currentQuestionId);
   await deleteServiceMessages(ctx, data);
-  const view = questionView(step, data);
+  // Мотивация раскрывается с уже отмеченными вариантами — можно снять один и выбрать другой.
+  const motivationDraft = step === 'await_motivation' && Array.isArray(data.motivation) ? data.motivation : undefined;
+  const view = questionView(step, { ...data, motivationDraft });
   await editMessage(ctx, blockId, view.text, view.keyboard);
   return transition.goto(step, {
     currentQuestionId: blockId,
     lastAnswered: undefined,
-    motivationDraft: undefined,
+    motivationDraft,
     serviceMessageIds: [],
   });
 }

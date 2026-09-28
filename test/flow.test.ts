@@ -253,7 +253,7 @@ test('мотивация: повторное нажатие снимает вы�
   assert.deepEqual(dataOf(result).motivationDraft, []);
 });
 
-test('мотивация: второй выбор — блок сворачивается без «Изменить», анкета идёт дальше', async () => {
+test('мотивация: второй выбор — блок сворачивается с «Изменить», анкета идёт дальше', async () => {
   const { result, edits } = await runStep(
     'await_motivation',
     { goal: 'internship', currentQuestionId: 'q', motivationDraft: ['growth'], blockIds: { overtime: 'o' }, lastAnswered: 'overtime' },
@@ -263,7 +263,8 @@ test('мотивация: второй выбор — блок сворачив�
   assert.deepEqual(dataOf(result).motivation, ['growth', 'mentor']);
   assert.equal(edits.find((e) => e.id === 'o')!.hasKeyboard, false);
   const block = edits.find((e) => e.id === 'q')!;
-  assert.equal(block.hasKeyboard, false);
+  assert.ok(block.keyboardText.includes('Изменить'));
+  assert.equal(dataOf(result).lastAnswered, 'motivation');
   assert.ok(block.text.includes('Карьерный рост') && block.text.includes('Сильный наставник'));
 });
 
@@ -625,4 +626,26 @@ test('стажировка: после формата работы вопрос 
   assert.equal(stepOf(job.result), 'await_relocation');
   const { profileCard } = await import('../src/dialog/flow.js');
   assert.ok(!profileCard({ name: 'Аня', goal: 'internship' }).includes('Переезд'));
+});
+
+test('«Изменить» у мотивации: раскрывается с отмеченными, третий вариант не добавляется', async () => {
+  const data: ProfileData = { goal: 'internship', motivation: ['growth', 'mentor'], blockIds: { motivation: 'mb' }, lastAnswered: 'motivation', currentQuestionId: 'v' };
+  const back = await runIntercept('await_verification', data, { callbackPayload: 'back', messageId: 'mb' });
+  assert.equal(stepOf(back.result), 'await_motivation');
+  assert.deepEqual(dataOf(back.result).motivationDraft, ['growth', 'mentor']);
+  assert.deepEqual(back.deleted, ['v']);
+  const third = await runStep('await_motivation', { ...data, motivationDraft: ['growth', 'mentor'], currentQuestionId: 'mb' }, { callbackPayload: 'multi:team' });
+  assert.equal(third.result!.type, 'stay');
+  assert.equal(dataOf(third.result).motivation, undefined);
+});
+
+test('эмодзи вариантов ответа не повторяются во всей анкете (и нет флагов и растений)', async () => {
+  const s = await import('../src/dialog/script.js');
+  const lists = [s.STUDY_STAGE_OPTIONS, s.GOAL_OPTIONS, s.FIELD_OPTIONS, s.INTERNSHIP_EXPERIENCE_OPTIONS, s.JOB_EXPERIENCE_OPTIONS,
+    s.EMPLOYMENT_OPTIONS, s.INTERNSHIP_PAY_OPTIONS, s.WORK_FORMAT_OPTIONS, s.RELOCATION_OPTIONS, s.OVERTIME_OPTIONS,
+    s.MOTIVATION_OPTIONS, s.CONTACT_OPTIONS];
+  const icons = lists.flat().map((o) => o.label.split(' ')[0].replace('️', '')).filter((e) => /\p{Extended_Pictographic}/u.test(e));
+  const dupes = icons.filter((e, i) => icons.indexOf(e) !== i);
+  assert.deepEqual(dupes, []);
+  assert.ok(!icons.some((e) => /[🏁🚩🌱🌿🌳🍀🌾]/u.test(e)));
 });
