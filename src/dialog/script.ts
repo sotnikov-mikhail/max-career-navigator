@@ -218,7 +218,7 @@ export const MOTIVATION_OPTIONS: ChoiceOption[] = [
 
 export function motivationPrompt(selected: number): string {
   return (
-    '🚀 Главные факторы, которые позволят тебе сказать работодателю «ДА»:\n\n' +
+    '🚀 Какие главные факторы позволят тебе сказать работодателю «ДА»?\n\n' +
     `👉 ${fmt.bold('Выбери 2 варианта')} — отмеченные появятся с зелёной галочкой ✅\n\n` +
     `Выбрано: ${fmt.bold(`${selected} из ${MOTIVATION_COUNT}`)}`
   );
