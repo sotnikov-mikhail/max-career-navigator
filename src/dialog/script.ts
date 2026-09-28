@@ -235,9 +235,7 @@ export const VERIFICATION_PROMPT =
 
 export const MANUAL_PASSPORT_PROMPT =
   `🛂 Шаг 1 из 2 — ${fmt.bold('паспорт')}\n\n` +
-  `${fmt.bold('Быстрее всего — отправь фото двух разворотов:')}\n` +
-  '• стр. 2–3 — с фотографией\n' +
-  '• стр. 4–5 — с пропиской\n\n' +
+  `${fmt.bold('Быстрее всего — отправь фото разворота 2–3')} (с фотографией). Следом попрошу разворот 4–5 с пропиской.\n\n` +
   'Или напиши данные одним сообщением по шаблону:\n\n' +
   quote(
     'Серия и номер:\n' +
@@ -249,7 +247,7 @@ export const MANUAL_PASSPORT_PROMPT =
       'Адрес регистрации:',
   );
 
-export const MANUAL_PASSPORT_SECOND_PAGE = '✅ Разворот 2–3 получен. Теперь отправь стр. 4–5 — с пропиской.';
+export const MANUAL_PASSPORT_SECOND_PAGE = '✅ Разворот 2–3 получен. Теперь отправь фото разворота 4–5 — с пропиской.';
 
 export function manualPassportMissing(missing: string[]): string {
   return `Не хватает данных: ${missing.join(', ')}. Допиши их одним сообщением или просто отправь фото разворотов — так быстрее 📸`;

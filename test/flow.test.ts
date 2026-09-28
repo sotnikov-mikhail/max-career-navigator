@@ -413,7 +413,7 @@ test('паспорт по фото: после разворота 2–3 бот �
   const first = await runStep('await_passport', {}, { photos: 1 });
   assert.equal(first.result.type, 'stay');
   assert.equal(dataOf(first.result).passportPhotos, 1);
-  assert.ok(first.replies[0].includes('стр. 4–5'));
+  assert.ok(first.replies[0].includes('Разворот 2–3 получен') && first.replies[0].includes('разворота 4–5'));
 
   const second = await runStep('await_passport', { passportPhotos: 1 }, { photos: 1 });
   assert.equal(stepOf(second.result), 'await_inn');
