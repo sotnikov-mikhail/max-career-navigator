@@ -35,7 +35,7 @@ export const STUDY_STAGE_OPTIONS: ChoiceOption[] = [
   { id: 'uni_1_2', label: '📘 Вуз, 1–2 курс' },
   { id: 'uni_3_4', label: '📗 Вуз, 3–4 курс / магистратура' },
   { id: 'graduated', label: '🎓 Окончил(а) обучение' },
-  { id: 'no_education', label: '⚪ Нет образования' },
+  { id: 'no_education', label: '📄 Нет образования' },
 ];
 
 export function studyStagePrompt(name: string | undefined): string {
@@ -175,7 +175,7 @@ export const RELOCATION_PROMPT = '🧳 Готов(а) к переезду, ес�
 
 // 11. Переработки и жёсткие сроки
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
-  { id: 'ready_100', label: '🔥 Готов(а) на все 100%' },
+  { id: 'ready_100', label: '💯 Готов(а) на все 100%' },
   { id: 'ready_sometimes', label: '⚖️ Изредка, ценю баланс' },
   { id: 'strict_schedule', label: '📅 Строго по графику' },
 ];
@@ -189,11 +189,11 @@ export const MOTIVATION_OPTIONS: ChoiceOption[] = [
   { id: 'pay_now', label: '💳 Оплата сейчас' },
   { id: 'high_income', label: '📈 Высокий доход на старте' },
   { id: 'growth', label: '🚀 Карьерный рост' },
-  { id: 'atmosphere', label: '😊 Здоровая атмосфера' },
+  { id: 'atmosphere', label: '☀️ Здоровая атмосфера' },
   { id: 'team', label: '🤝 Крутая команда' },
-  { id: 'flexible_schedule', label: '🕊️ Гибкий график' },
+  { id: 'flexible_schedule', label: '🗓️ Гибкий график' },
   { id: 'official', label: '🏛️ Официальное трудоустройство' },
-  { id: 'real_cases', label: '🧪 Реальные кейсы' },
+  { id: 'real_cases', label: '🛠️ Реальные кейсы' },
   { id: 'mentor', label: '🧑‍🏫 Сильный наставник' },
   { id: 'remote_or_near', label: '🏠 Удалёнка / рядом с домом' },
   { id: 'skills', label: '📚 Развитие новых навыков' },
