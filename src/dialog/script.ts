@@ -143,7 +143,7 @@ export function salaryTitle(goal: Goal): string {
 
 export function salaryPrompt(goal: Goal): string {
   if (goal === 'internship') {
-    return '💡 Рассматриваешь только оплачиваемые стажировки или готов(а) начать и с неоплачиваемой ради опыта?';
+    return '💡 Рассматриваешь только оплачиваемые стажировки или готов(а) начать без оплаты?';
   }
   return '📈 На какой доход в месяц рассчитываешь?';
 }
