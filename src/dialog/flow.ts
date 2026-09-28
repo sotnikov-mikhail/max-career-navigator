@@ -33,6 +33,7 @@ import {
   MOTIVATION_COUNT,
   MOTIVATION_OPTIONS,
   NAME_EMPTY_PROMPT,
+  NAME_INVALID_PROMPT,
   NAME_QUESTION,
   OVERTIME_OPTIONS,
   OVERTIME_PROMPT,
@@ -454,9 +455,18 @@ const greet: Step_ = async ({ ctx }) => {
   return transition.goto('await_name');
 };
 
+/**
+ * Имя: одно–три слова из букв, дефиса и апострофа, до 40 символов. Защищает карточку профиля от
+ * случайно вставленного или пересланного длинного текста.
+ */
+export function isValidName(name: string): boolean {
+  return name.length <= 40 && /^[\p{L}][\p{L}'’-]*(?: [\p{L}][\p{L}'’-]*){0,2}$/u.test(name);
+}
+
 const awaitName: Step_ = async ({ ctx, data }) => {
-  const name = readText(ctx);
+  const name = readText(ctx)?.replace(/\s+/g, ' ');
   if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
+  if (!isValidName(name)) return sendService(ctx, data, NAME_INVALID_PROMPT);
   const updated = { ...data, name };
   const currentQuestionId = await ask(ctx, 'await_study_stage', updated);
   return advance(ctx, data, 'await_study_stage', { name, currentQuestionId });

@@ -27,6 +27,7 @@ export const GREETING =
 
 export const NAME_QUESTION = 'Как тебя зовут?';
 export const NAME_EMPTY_PROMPT = 'Имя не должно быть пустым. Как тебя зовут?';
+export const NAME_INVALID_PROMPT = 'Напиши, пожалуйста, только имя — например: Аня.';
 export const RESTART_HINT = 'Чтобы начать заново в любой момент, напиши /start. Отменить текущий шаг — /cancel.';
 
 // 1. Этап обучения

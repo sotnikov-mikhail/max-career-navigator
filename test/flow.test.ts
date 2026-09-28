@@ -651,3 +651,15 @@ test('эмодзи вариантов ответа не повторяются �
   assert.deepEqual(dupes, []);
   assert.ok(!icons.some((e) => /[🏁🚩🌱🌿🌳🍀🌾]/u.test(e)));
 });
+
+test('имя: принимаем 1–3 слова из букв, длинный или вставленный текст — нет', async () => {
+  const { isValidName } = await import('../src/dialog/flow.js');
+  for (const ok of ['Аня', 'Анна-Мария', 'Гера Сотников', 'John', "Д'Артаньян"]) assert.ok(isValidName(ok), ok);
+  for (const bad of ['📝 Последний вопрос', 'Давай честно, я был бы рад', 'Аня123', 'a b c d', 'Я'.repeat(41)]) assert.ok(!isValidName(bad), bad);
+  const bad = await runStep('await_name', {}, { text: '📝 Последний вопрос\n\nДавай честно…' });
+  assert.equal(bad.result.type, 'stay');
+  assert.ok(bad.replies[0].includes('только имя'));
+  const ok = await runStep('await_name', {}, { text: '  Аня  ' });
+  assert.equal(stepOf(ok.result), 'await_study_stage');
+  assert.equal(dataOf(ok.result).name, 'Аня');
+});
