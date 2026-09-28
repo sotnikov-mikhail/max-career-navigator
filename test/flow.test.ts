@@ -437,8 +437,11 @@ test('связь → финал: сообщение «профиль готов�
 });
 
 test('финал: кнопка открывает карточку профиля без пометок «демо»', async () => {
-  const profile = await runStep('await_final_action', { name: 'Аня', goal: 'job', motivation: ['growth'], verified: true }, { callbackPayload: 'profile' });
+  const profile = await runStep('await_final_action', { name: 'Аня', goal: 'job', motivation: ['growth'], verified: true }, { callbackPayload: 'profile', messageId: 'fin' });
   assert.ok(profile.replies[0].includes('Мой профиль'));
+  assert.ok(profile.replies[0].includes('с тобой свяжутся эксперты Федеральной службы по труду и занятости'));
+  const finalEdit = profile.edits.find((e) => e.id === 'fin')!;
+  assert.equal(finalEdit.hasKeyboard, false, 'кнопка профиля убрана с финального сообщения');
   assert.ok(profile.replies[0].includes('Аня'));
   assert.ok(!/демо/i.test(profile.replies[0]));
 });

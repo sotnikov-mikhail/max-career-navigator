@@ -19,6 +19,7 @@ import {
   FIELD_PROMPT,
   FINAL_BUTTON_PROFILE,
   FINAL_MESSAGE,
+  PROFILE_FOOTER,
   GOAL_OPTIONS,
   GOAL_PROMPT,
   GREETING,
@@ -793,13 +794,15 @@ function profileLine(field: keyof ProfileAnswers, data: ProfileData): string {
 export function profileCard(data: ProfileData): string {
   const status = data.verified ? '✅ подтверждён' : '⏳ не подтверждён';
   const lines = PROFILE_FIELDS.map((field) => profileLine(field, data));
-  return `# 🪪 Мой профиль\n\n${fmt.bold(fmt.escape(data.name ?? '—'))} · ${status}\n\n${lines.join('\n')}`;
+  return `# 🪪 Мой профиль\n\n${fmt.bold(fmt.escape(data.name ?? '—'))} · ${status}\n\n${lines.join('\n')}\n\n${PROFILE_FOOTER}`;
 }
 
 const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;
   await acknowledgeCallback(ctx);
   if (payload === 'profile') {
+    // Кнопка одноразовая: убираем её с финального сообщения, чтобы карточка не дублировалась.
+    await editMessage(ctx, ctx.messageId, FINAL_MESSAGE);
     await sendText(ctx, profileCard(data));
     return transition.stay();
   }

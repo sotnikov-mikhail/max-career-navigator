@@ -295,6 +295,8 @@ export const FINAL_MESSAGE =
 
 export const FINAL_BUTTON_PROFILE = 'Открыть мой профиль →';
 
+export const PROFILE_FOOTER = '⏳ Ожидай, с тобой свяжутся эксперты Федеральной службы по труду и занятости.';
+
 export function invalidChoicePrompt(): string {
   return 'Пожалуйста, выбери один из вариантов кнопкой 👆';
 }
