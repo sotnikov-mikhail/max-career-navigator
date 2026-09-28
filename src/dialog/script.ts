@@ -40,7 +40,7 @@ export const STUDY_STAGE_OPTIONS: ChoiceOption[] = [
 
 export function studyStagePrompt(name: string | undefined): string {
   const greeting = name ? `Приятно познакомиться, ${fmt.bold(fmt.escape(name))}!` : 'Приятно познакомиться!';
-  return `🎓 ${greeting} На каком ты этапе?`;
+  return `🤝 ${greeting} На каком ты этапе?`;
 }
 
 // 2. Цель (развилка)
@@ -53,7 +53,7 @@ export const GOAL_PROMPT = '🎯 Что для тебя сейчас важне�
 
 // 3. Город
 export const CITY_PROMPT =
-  '📍 В каком городе ты сейчас ищешь возможности? Выбери кнопкой, отправь геопозицию или просто напиши название.';
+  '🗺️ В каком городе ты сейчас ищешь возможности? Выбери кнопкой, отправь геопозицию или просто напиши название.';
 
 export const CITY_EMPTY_PROMPT = 'Название города не должно быть пустым. Выбери кнопкой, отправь геопозицию или напиши город.';
 
@@ -143,7 +143,7 @@ export function salaryTitle(goal: Goal): string {
 
 export function salaryPrompt(goal: Goal): string {
   if (goal === 'internship') {
-    return '💳 Рассматриваешь только оплачиваемые стажировки или готов(а) начать и с неоплачиваемой ради опыта?';
+    return '💡 Рассматриваешь только оплачиваемые стажировки или готов(а) начать и с неоплачиваемой ради опыта?';
   }
   return '📈 На какой доход в месяц рассчитываешь?';
 }
@@ -171,7 +171,7 @@ export const RELOCATION_OPTIONS: ChoiceOption[] = [
   { id: 'reloc_no', label: '🏠 Не готов(а)' },
 ];
 
-export const RELOCATION_PROMPT = '✈️ Готов(а) к переезду, если найдётся подходящее предложение в другом городе?';
+export const RELOCATION_PROMPT = '🧳 Готов(а) к переезду, если найдётся подходящее предложение в другом городе?';
 
 // 11. Переработки и жёсткие сроки
 export const OVERTIME_OPTIONS: ChoiceOption[] = [
@@ -180,7 +180,7 @@ export const OVERTIME_OPTIONS: ChoiceOption[] = [
   { id: 'strict_schedule', label: '📅 Строго по графику' },
 ];
 
-export const OVERTIME_PROMPT = '🔥 Перед сдачей проекта нагрузка иногда растёт. Как ты к этому относишься?';
+export const OVERTIME_PROMPT = '🏁 Перед сдачей проекта нагрузка иногда растёт. Как ты к этому относишься?';
 
 // 12. Мотивация — ровно два варианта: после второго анкета идёт дальше сама
 export const MOTIVATION_COUNT = 2;
@@ -202,7 +202,7 @@ export const MOTIVATION_OPTIONS: ChoiceOption[] = [
 
 export function motivationPrompt(selected: number): string {
   return (
-    '🚀 Какие главные факторы позволят тебе сказать работодателю «ДА»?\n\n' +
+    '✨ Какие главные факторы позволят тебе сказать работодателю «ДА»?\n\n' +
     `👉 ${fmt.bold('Выбери 2 варианта')} — отмеченные появятся с зелёной галочкой ✅\n\n` +
     `Выбрано: ${fmt.bold(`${selected} из ${MOTIVATION_COUNT}`)}`
   );
