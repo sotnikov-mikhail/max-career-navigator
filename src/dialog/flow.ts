@@ -228,7 +228,7 @@ const FIELD_TITLES: Partial<Record<keyof ProfileAnswers, string>> = {
   employment: 'Готов(а) уделять',
   workFormat: 'Формат работы',
   relocation: 'Переезд',
-  overtime: 'Переработки',
+  overtime: 'Переработки и жёсткие сроки',
   motivation: 'Мотивация',
   salaryRevision: 'Корректировка ЗП',
   verificationMethod: 'Верификация',
