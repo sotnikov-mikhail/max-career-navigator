@@ -333,7 +333,7 @@ test('Банк ID: сначала выбор банка в том же сооб�
   assert.equal(stepOf(signedIn.result), 'await_contact');
   assert.equal(dataOf(signedIn.result).bank, 'bank_tbank');
   assert.equal(dataOf(signedIn.result).verified, true);
-  assert.ok(signedIn.replies.some((r) => r.includes('вход через Т-ID')));
+  assert.ok(signedIn.replies.some((r) => r.includes('авторизация через Т-ID')));
   assert.ok(signedIn.edits.find((e) => e.id === 'v')!.text.includes('Банк ID — Т-ID'));
 });
 

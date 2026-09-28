@@ -289,7 +289,7 @@ export const BANK_OPTIONS: ChoiceOption[] = [
   { id: 'bank_gpb', label: 'Газпромбанк ID' },
 ];
 
-export const BANK_PROMPT = '🏦 Выбери банк, через который войдёшь:';
+export const BANK_PROMPT = '🏦 Выбери банк, через который авторизуешься:';
 
 export function verificationProcessing(methodLabel: string): string {
   return `⏳ Проверяем: ${methodLabel}…`;

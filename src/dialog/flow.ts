@@ -639,7 +639,7 @@ const awaitBank: Step_ = async ({ ctx, data }) => {
   return answer(ctx, data, 'verificationMethod', { bank: bank.id }, 'await_contact', {
     back: false,
     before: async () => {
-      await demoVerify(ctx, `вход через ${bank.label}`);
+      await demoVerify(ctx, `авторизация через ${bank.label}`);
       return { verified: true };
     },
   });
