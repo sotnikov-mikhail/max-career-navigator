@@ -130,7 +130,7 @@ export const JOB_SALARY_OPTIONS: ChoiceOption[] = [
   { id: 'sal_300p', label: 'От 300 000 ₽ / мес' },
 ];
 
-/** Вилки для «Изменить ответ» в блоке корректировки — уже до 150 000 ₽. */
+/** Вилки для «Изменить сумму» в блоке корректировки — уже до 150 000 ₽. */
 export const JOB_SALARY_FIX_OPTIONS: ChoiceOption[] = JOB_SALARY_OPTIONS.slice(0, 3);
 
 export function salaryOptions(goal: Goal): ChoiceOption[] {
@@ -216,11 +216,11 @@ export const SALARY_CORRECTION_PROMPT =
   'Давай скорректируем?';
 
 export const SALARY_CORRECTION_OPTIONS: ChoiceOption[] = [
-  { id: 'fix_salary', label: '✏️ Изменить ответ' },
-  { id: 'keep_salary', label: '➡️ Оставить как есть' },
+  { id: 'fix_salary', label: '✏️ Изменить сумму' },
+  { id: 'keep_salary', label: '➡️ Оставить сумму' },
 ];
 
-export const SALARY_FIX_PROMPT = '📈 Какие у тебя зарплатные ожидания? Выбери новую сумму — до 150 000 ₽';
+export const SALARY_FIX_PROMPT = '📈 Какие у тебя зарплатные ожидания? Выбери:';
 
 // 14. Верификация
 export const VERIFICATION_OPTIONS: ChoiceOption[] = [

@@ -185,7 +185,7 @@ function questionView(step: Step, data: ProfileData): QuestionView {
         keyboard: multiKeyboard(MOTIVATION_OPTIONS, data.motivationDraft ?? []),
       };
     case 'await_salary_correction':
-      // Столбиком: в половину ширины «Оставить как есть» обрезается.
+      // Столбиком: в половину ширины «Оставить сумму» обрезается.
       return { text: SALARY_CORRECTION_PROMPT, keyboard: choiceKeyboard(options) };
     case 'await_salary_fix':
       return { text: SALARY_FIX_PROMPT, keyboard: choiceKeyboard(options) };
@@ -537,7 +537,7 @@ const awaitMotivation: Step_ = async ({ ctx, data }) => {
 
 /**
  * Корректировка ЗП не оставляет следов в конце анкеты: сообщение удаляется в обоих случаях.
- * При «Изменить ответ» новая сумма обновляет только блок с зарплатой в середине анкеты.
+ * При «Изменить сумму» новая сумма обновляет только блок с зарплатой в середине анкеты.
  */
 async function finishSalaryCorrection(ctx: BotContext, data: ProfileData, patch: Partial<ProfileData>): Promise<Transition> {
   await deleteMessage(ctx, data.currentQuestionId);
