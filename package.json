@@ -4,6 +4,9 @@
   "private": true,
   "description": "Чат-бот «Твой карьерный навигатор» для MAX — цифровой карьерный профиль для студентов и выпускников (хакатон «Забота о людях»)",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "main": "dist/bot.js",
   "scripts": {
     "dev": "NODE_EXTRA_CA_CERTS=certs/russian_trusted_ca_bundle.pem tsx watch src/bot.ts",
