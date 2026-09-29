@@ -506,7 +506,11 @@ export function isValidName(name: string): boolean {
 const awaitName: Step_ = async ({ ctx, data }) => {
   const name = readText(ctx)?.replace(/\s+/g, ' ');
   if (!name) return sendService(ctx, data, NAME_EMPTY_PROMPT);
-  if (!isValidName(name)) return sendService(ctx, data, NAME_INVALID_PROMPT);
+  if (!isValidName(name)) {
+    // Диагностика: команда вместо имени — значит, MAX прислал служебный текст. Логируем только начало команды.
+    if (name.startsWith('/')) console.warn('Вместо имени пришла команда:', JSON.stringify(name.slice(0, 20)));
+    return sendService(ctx, data, NAME_INVALID_PROMPT);
+  }
   if (!data.consentAt) {
     // До согласия имя не сохраняем в профиль — держим отдельно и сразу просим согласие.
     const currentQuestionId = await ask(ctx, 'await_consent', { ...data, pendingName: name });

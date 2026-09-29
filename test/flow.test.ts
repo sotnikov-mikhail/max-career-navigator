@@ -720,6 +720,15 @@ test('напоминаний до согласия нет', () => {
   assert.equal(dueReminder('await_consent', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });
 
+test('команды распознаются с параметром и упоминанием бота: «/start x», «/start@бот»', async () => {
+  const { commandPattern } = await import('../src/start.js');
+  const start = commandPattern('start');
+  for (const ok of ['start', 'start abc', 'start@t608_hakaton_max_bot', 'start@t608_hakaton_max_bot abc', ' start ']) {
+    assert.ok(start.exec(ok.trim()), ok);
+  }
+  for (const bad of ['starter', 'restart', 'stop', 'Аня']) assert.ok(!start.exec(bad), bad);
+});
+
 test('служебные события MAX (очистка чата, mute, правка сообщения) не попадают в анкету', async () => {
   const { userActionsOnly } = await import('../src/start.js');
   for (const type of ['dialog_cleared', 'dialog_removed', 'dialog_muted', 'dialog_unmuted', 'message_edited', 'message_removed', 'bot_added', 'bot_stopped']) {

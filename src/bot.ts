@@ -4,7 +4,7 @@ import { careerScenario } from './dialog/flow.js';
 import { RESTART_HINT } from './dialog/script.js';
 import type { BotContext, BotSession, ProfileData } from './dialog/types.js';
 import { startReminders } from './reminders.js';
-import { startFresh, userActionsOnly } from './start.js';
+import { commandPattern, startFresh, userActionsOnly } from './start.js';
 import { FileSessionStore } from './session/fileStore.js';
 import { deleteSubmissionsForChat } from './services/profileRegistryMock.js';
 
@@ -58,14 +58,14 @@ bot.use(async (ctx, next) => {
 bot.use(scenarios.controllerMiddleware());
 
 // Отзыв согласия на обработку персональных данных (152-ФЗ): удаляем сессию и заявки этого чата.
-bot.command('delete_data', async (ctx) => {
+bot.command(commandPattern('delete_data'), async (ctx) => {
   ctx.scenario.cancel();
   ctx.session = undefined;
   if (ctx.chatId != null) deleteSubmissionsForChat(ctx.chatId);
   await ctx.reply('🗑 Согласие отозвано, твои данные удалены. Чтобы начать заново, напиши /start.');
 });
 
-bot.command('cancel', async (ctx) => {
+bot.command(commandPattern('cancel'), async (ctx) => {
   const canceled = ctx.scenario.cancel();
   await ctx.reply(canceled ? 'Ок, отменил текущий шаг. Напиши /start, чтобы начать заново.' : 'Сейчас нет активного сценария.');
 });
@@ -74,7 +74,7 @@ const begin = startFresh(scenarios);
 
 // «Начать» и /start — всегда с приветствия. Обработчики стоят ДО перехватчика анкеты: иначе при уже
 // начатой анкете событие «Начать» уходило бы в её текущий шаг («выбери один из вариантов»).
-bot.command('start', begin);
+bot.command(commandPattern('start'), begin);
 bot.on('bot_started', begin);
 
 // Очистка или удаление чата: сбрасываем анкету — при следующем «Начать» всё начнётся с приветствия.
