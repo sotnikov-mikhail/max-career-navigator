@@ -16,7 +16,8 @@ const SECOND_REMINDER_MS = 2 * 60 * MINUTE;
  */
 export function dueReminder(step: Step, data: ProfileData, now: number): ReminderKind | undefined {
   // До согласия на обработку данных не напоминаем: человек ещё не дал согласия на анкету.
-  if (step === 'greet' || step === 'await_consent' || step === 'await_final_action' || !data.lastActivityAt) return undefined;
+  // После отправки профиля напоминаний нет — в том числе если человек нажал «Изменить» у связи и не ответил.
+  if (step === 'greet' || step === 'await_consent' || step === 'await_final_action' || data.completedAt || !data.lastActivityAt) return undefined;
   const sent = data.remindersSent ?? [];
   const elapsed = now - data.lastActivityAt;
   if (elapsed >= SECOND_REMINDER_MS) return sent.includes('incomplete_2h') ? undefined : 'incomplete_2h';

@@ -26,11 +26,16 @@ export function commandPattern(name: string): RegExp {
  * присланные напоминания удаляются, счётчик напоминаний сбрасывается. Служебные события напоминания не трогают.
  */
 export function markActivity(ctx: BotContext, data: ProfileData, now = Date.now()): ProfileData {
-  const userAction = ctx.updateType === 'message_created' || ctx.updateType === 'message_callback';
-  const stale = userAction ? (data.reminderMessageIds ?? []) : [];
+  // Служебные события (mute, правка сообщения и т. п.) — не активность: таймер напоминаний не сбрасываем.
+  if (!ACTIVITY.has(ctx.updateType)) return data;
+  const returned = ctx.updateType !== 'bot_started';
+  const stale = returned ? (data.reminderMessageIds ?? []) : [];
   if (stale.length > 0) cleanupInBackground(ctx, stale);
-  return { ...data, lastActivityAt: now, remindersSent: [], reminderMessageIds: userAction ? [] : data.reminderMessageIds };
+  return { ...data, lastActivityAt: now, remindersSent: [], reminderMessageIds: returned ? [] : data.reminderMessageIds };
 }
+
+/** Что считается активностью человека: сообщение, нажатие кнопки, «Начать». */
+const ACTIVITY: ReadonlySet<string> = new Set(['message_created', 'message_callback', 'bot_started']);
 
 /**
  * Запуск анкеты с приветствия — для «Начать» (bot_started), /start и любого сообщения без активной анкеты.

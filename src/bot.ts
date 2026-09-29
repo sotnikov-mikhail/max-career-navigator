@@ -35,7 +35,7 @@ console.log(`Бот @${info.username} авторизован, запускаю l
 // Меню команд — некритично: при сбое сети бот всё равно запускается.
 await bot.api.setMyCommands([
   { name: 'start', description: 'Начать заново' },
-  { name: 'cancel', description: 'Отменить текущий шаг' },
+  { name: 'cancel', description: 'Прервать анкету' },
   { name: 'delete_data', description: 'Отозвать согласие и удалить мои данные' },
 ]).catch((error) => console.error('Не удалось обновить меню команд (не критично)', (error as Error).message));
 
@@ -68,7 +68,7 @@ bot.command(commandPattern('delete_data'), async (ctx) => {
 
 bot.command(commandPattern('cancel'), async (ctx) => {
   const canceled = ctx.scenario.cancel();
-  await ctx.reply(canceled ? 'Ок, отменил текущий шаг. Напиши /start, чтобы начать заново.' : 'Сейчас нет активного сценария.');
+  await ctx.reply(canceled ? 'Анкета прервана. Напиши /start или любое сообщение, чтобы начать заново.' : 'Сейчас нет активной анкеты. Напиши /start, чтобы начать.');
 });
 
 const begin = startFresh(scenarios);

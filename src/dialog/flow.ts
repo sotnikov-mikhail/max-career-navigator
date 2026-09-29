@@ -14,6 +14,7 @@ import {
   CONSENT_TEXT_LABEL,
   CONSENT_YES_LABEL,
   CITY_EMPTY_PROMPT,
+  CITY_INVALID_PROMPT,
   CITY_PROMPT,
   CONTACT_OPTIONS,
   CONTACT_PROMPT,
@@ -427,12 +428,13 @@ async function answer(
   options: AnswerOptions,
 ): Promise<Transition> {
   let updated: ProfileData = { ...data, ...patch };
+  // Сначала действие (проверка, отправка профиля), потом «✅ …» — иначе бот писал бы «подтверждено» до проверки.
+  const extra = (await options.before?.(ctx, updated)) ?? {};
+  updated = { ...updated, ...extra };
   if (data.lastAnswered && data.lastAnswered !== field) {
     await editMessage(ctx, data.blockIds?.[data.lastAnswered], recapText(data.lastAnswered, data));
   }
   await editMessage(ctx, data.currentQuestionId, recapText(field, updated), options.back ? backKeyboard() : undefined);
-  const extra = (await options.before?.(ctx, updated)) ?? {};
-  updated = { ...updated, ...extra };
   const currentQuestionId = await ask(ctx, next, updated);
   return advance(ctx, data, next, {
     ...patch,
@@ -540,8 +542,14 @@ async function resolveCity(ctx: BotContext): Promise<CityAnswer | undefined> {
     if (distanceKm > MAX_CITY_DISTANCE_KM) return { error: cityTooFarPrompt(city.name, distanceKm) };
     return { city: city.name, fromGeo: true };
   }
-  const text = readText(ctx);
-  return text ? { city: text, fromGeo: false } : undefined;
+  const text = readText(ctx)?.replace(/\s+/g, ' ');
+  if (!text) return undefined;
+  return isValidCity(text) ? { city: text, fromGeo: false } : { error: CITY_INVALID_PROMPT };
+}
+
+/** Город текстом: буквы, пробел, дефис, точка, апостроф; 2–40 символов, без цифр («Ростов-на-Дону», «г. Тверь»). */
+export function isValidCity(text: string): boolean {
+  return /^[\p{L}][\p{L}.'’ -]{1,39}$/u.test(text);
 }
 
 const awaitCity: Step_ = async ({ ctx, data }) => {
@@ -578,7 +586,7 @@ export function needsSalaryCorrection(data: ProfileData): boolean {
 
 /**
  * Мотивация: ровно два варианта. Выбранный отмечается зелёной галочкой ✅, после второго анкета идёт дальше сама.
- * Повторное нажатие снимает отметку. Последний вопрос анкеты — без «Изменить».
+ * Повторное нажатие снимает отметку. «Изменить» у мотивации доступно, пока не выбран способ верификации.
  */
 const awaitMotivation: Step_ = async ({ ctx, data }) => {
   const payload = ctx.callback?.payload;

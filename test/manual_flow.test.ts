@@ -86,3 +86,90 @@ test('ручная проверка: паспорт одним сообщени�
   s = await drive(chat, s, { text: '123-456-789 01' });
   assert.equal(s.step, 'await_contact');
 });
+
+/** Нажатие кнопки на текущем вопросе (id сообщения берём из состояния — как настоящий callback). */
+const press = (chat: ReturnType<typeof makeChat>, s: { step: Step; data: ProfileData }, id: string) =>
+  drive(chat, s, { callback: id, messageId: s.data.currentQuestionId });
+
+test('вся анкета «Работа»: приветствие → … → корректировка → Госуслуги → связь → профиль → «Изменить» у связи', async () => {
+  const chat = makeChat();
+  let s = { step: 'greet' as Step, data: {} as ProfileData };
+  s = await drive(chat, s, {});
+  assert.equal(s.step, 'await_name');
+  s = await drive(chat, s, { text: 'Аня' });
+  assert.equal(s.step, 'await_consent');
+  assert.equal(s.data.name, undefined, 'до согласия имя не сохранено');
+  s = await press(chat, s, 'consent_yes');
+  assert.equal(s.step, 'await_study_stage');
+  assert.equal(s.data.name, 'Аня');
+  for (const [id, next] of [
+    ['uni_1_2', 'await_goal'], ['job', 'await_city'], ['city:msk', 'await_field'], ['it', 'await_experience'],
+    ['exp_0_1', 'await_employment'], ['hours_10_20', 'await_salary'], ['sal_150_300', 'await_midpoint'], ['continue', 'await_work_format'],
+    ['remote', 'await_relocation'], ['reloc_no', 'await_overtime'], ['ready_100', 'await_motivation'],
+  ] as const) {
+    s = await press(chat, s, id);
+    assert.equal(s.step, next, `после «${id}»`);
+  }
+  s = await press(chat, s, 'multi:growth');
+  s = await press(chat, s, 'multi:mentor');
+  assert.equal(s.step, 'await_salary_correction');
+  s = await press(chat, s, 'fix_salary');
+  assert.equal(s.step, 'await_salary_fix');
+  s = await press(chat, s, 'sal_50_80');
+  assert.equal(s.step, 'await_verification');
+  s = await press(chat, s, 'verify_gosuslugi');
+  assert.equal(s.step, 'await_contact');
+  s = await press(chat, s, 'contact_online');
+  assert.equal(s.step, 'await_final_action');
+  assert.equal(s.data.verified, true);
+  assert.equal(typeof s.data.consentAt, 'number');
+  assert.equal(s.data.salary, 'sal_50_80');
+
+  const log = chat.log.join('\n');
+  assert.ok(log.indexOf('Проверяем') < log.lastIndexOf('~'), '«Проверяем» раньше итоговых строк');
+});
+
+test('вся анкета «Стажировка»: без вопроса о переезде, ручная проверка, «Изменить» у мотивации', async () => {
+  const chat = makeChat();
+  let s = { step: 'greet' as Step, data: {} as ProfileData };
+  s = await drive(chat, s, {});
+  s = await drive(chat, s, { text: 'Гера' });
+  s = await press(chat, s, 'consent_yes');
+  for (const [id, next] of [
+    ['college', 'await_goal'], ['internship', 'await_city'], ['city:kzn', 'await_field'], ['design', 'await_experience'],
+    ['exp_no', 'await_employment'], ['hours_lt_10', 'await_salary'], ['intern_paid', 'await_midpoint'], ['continue', 'await_work_format'],
+    ['hybrid', 'await_overtime'],
+  ] as const) {
+    s = await press(chat, s, id);
+    assert.equal(s.step, next, `после «${id}»`);
+  }
+  s = await press(chat, s, 'strict_schedule');
+  s = await press(chat, s, 'multi:team');
+  s = await press(chat, s, 'multi:skills');
+  assert.equal(s.step, 'await_verification');
+  assert.equal(s.data.lastAnswered, 'motivation', 'у мотивации есть «Изменить»');
+  s = await press(chat, s, 'verify_manual');
+  s = await drive(chat, s, { photos: 2 });
+  assert.equal(s.step, 'await_inn');
+  s = await drive(chat, s, { text: '000-000-000 00' });
+  assert.equal(s.step, 'await_contact');
+  s = await press(chat, s, 'contact_offline');
+  assert.equal(s.step, 'await_final_action');
+  assert.equal(s.data.relocation, undefined, 'у стажировки переезд не спрашивали');
+  assert.equal(s.data.passportProvided, true);
+});
+
+test('город текстом: буквы принимаются, мусор — нет; напоминаний после отправки профиля нет; служебные события таймер не сбрасывают', async () => {
+  const { isValidCity } = await import('../src/dialog/flow.js');
+  for (const ok of ['Тверь', 'Ростов-на-Дону', 'Нижний Новгород', 'г. Омск', "Д'Артаньян-Сити"]) assert.ok(isValidCity(ok), ok);
+  for (const bad of ['1', 'asdf 123', '12345', '😀', 'Я'.repeat(41), '']) assert.ok(!isValidCity(bad), bad);
+  const { dueReminder } = await import('../src/reminders.js');
+  assert.equal(dueReminder('await_contact', { lastActivityAt: 1, completedAt: 5 }, 1 + 300 * 60_000), undefined);
+  assert.equal(dueReminder('await_contact', { lastActivityAt: 1 }, 1 + 300 * 60_000), 'incomplete_2h');
+  const { markActivity } = await import('../src/start.js');
+  const same = { lastActivityAt: 1, remindersSent: ['incomplete_30m'] };
+  const muted = markActivity({ updateType: 'dialog_muted', chatId: 1 } as unknown as BotContext, same, 999);
+  assert.equal(muted.lastActivityAt, 1, 'mute не сбрасывает таймер');
+  const started = markActivity({ updateType: 'bot_started', chatId: 1 } as unknown as BotContext, same, 999);
+  assert.equal(started.lastActivityAt, 999, '«Начать» — активность');
+});

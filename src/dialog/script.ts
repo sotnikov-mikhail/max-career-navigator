@@ -53,7 +53,7 @@ export const CONSENT_RECAP = '✅ **Согласие на обработку д�
 export const NAME_QUESTION = 'Как тебя зовут?';
 export const NAME_EMPTY_PROMPT = 'Имя не должно быть пустым. Как тебя зовут?';
 export const NAME_INVALID_PROMPT = 'Напиши, пожалуйста, только имя — например: Аня.';
-export const RESTART_HINT = 'Чтобы начать заново в любой момент, напиши /start. Отменить текущий шаг — /cancel.';
+export const RESTART_HINT = 'Чтобы начать заново в любой момент, напиши /start. Прервать анкету — /cancel.';
 
 // 1. Этап обучения
 export const STUDY_STAGE_OPTIONS: ChoiceOption[] = [
@@ -81,6 +81,7 @@ export const GOAL_PROMPT = '🎯 Что для тебя сейчас важне�
 export const CITY_PROMPT =
   '🗺️ В каком городе ты сейчас ищешь возможности? Выбери кнопкой, отправь геопозицию или просто напиши название.';
 
+export const CITY_INVALID_PROMPT = 'Не похоже на название города. Выбери кнопкой, отправь геопозицию или напиши город буквами.';
 export const CITY_EMPTY_PROMPT = 'Название города не должно быть пустым. Выбери кнопкой, отправь геопозицию или напиши город.';
 
 export function cityTooFarPrompt(nearestName: string, distanceKm: number): string {
