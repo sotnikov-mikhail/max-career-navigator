@@ -4,7 +4,7 @@ import { careerScenario } from './dialog/flow.js';
 import { RESTART_HINT } from './dialog/script.js';
 import type { BotContext, BotSession, ProfileData } from './dialog/types.js';
 import { startReminders } from './reminders.js';
-import { startFresh } from './start.js';
+import { startFresh, userActionsOnly } from './start.js';
 import { FileSessionStore } from './session/fileStore.js';
 import { deleteSubmissionsForChat } from './services/profileRegistryMock.js';
 
@@ -76,6 +76,15 @@ const begin = startFresh(scenarios);
 // начатой анкете событие «Начать» уходило бы в её текущий шаг («выбери один из вариантов»).
 bot.command('start', begin);
 bot.on('bot_started', begin);
+
+// Очистка или удаление чата: сбрасываем анкету — при следующем «Начать» всё начнётся с приветствия.
+bot.on(['dialog_cleared', 'dialog_removed'], async (ctx) => {
+  ctx.scenario.cancel();
+  ctx.session = undefined;
+});
+
+// Дальше — только сообщения и нажатия кнопок; служебные события MAX анкету не трогают.
+bot.use(userActionsOnly);
 
 bot.use(scenarios.interceptMiddleware());
 

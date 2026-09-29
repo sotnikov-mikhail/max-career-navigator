@@ -720,6 +720,20 @@ test('напоминаний до согласия нет', () => {
   assert.equal(dueReminder('await_consent', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });
 
+test('служебные события MAX (очистка чата, mute, правка сообщения) не попадают в анкету', async () => {
+  const { userActionsOnly } = await import('../src/start.js');
+  for (const type of ['dialog_cleared', 'dialog_removed', 'dialog_muted', 'dialog_unmuted', 'message_edited', 'message_removed', 'bot_added', 'bot_stopped']) {
+    let reached = false;
+    await userActionsOnly({ updateType: type }, async () => void (reached = true));
+    assert.equal(reached, false, type);
+  }
+  for (const type of ['message_created', 'message_callback']) {
+    let reached = false;
+    await userActionsOnly({ updateType: type }, async () => void (reached = true));
+    assert.equal(reached, true, type);
+  }
+});
+
 test('«Начать» и /start: при уже начатой анкете приходит приветствие, а не «выбери один из вариантов»', async () => {
   const { ScenarioEngine } = await import('@maxhub/max-bot-api');
   const { startFresh } = await import('../src/start.js');
