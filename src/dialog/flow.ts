@@ -335,7 +335,7 @@ async function editMessage(ctx: BotContext, messageId: string | undefined, text:
 }
 
 /** MAX: не больше двух удалений в секунду в одном диалоге — между удалениями держим паузу. */
-const DELETE_INTERVAL_MS = 550;
+const DELETE_INTERVAL_MS = Number(process.env.DELETE_INTERVAL_MS ?? 550);
 const lastDeleteAt = new Map<number, number>();
 
 async function throttleDelete(chatId: number | undefined | null): Promise<void> {
@@ -728,7 +728,9 @@ const awaitPassport: Step_ = async ({ ctx, data }) => {
     const missing = missingPassportFields(readText(ctx) ?? '');
     if (missing.length > 0) return manualError(ctx, data, manualPassportMissing(missing));
   }
-  const currentQuestionId = await showInPlace(ctx, data, 'await_inn');
+  // Между подсказкой и этим моментом в чате уже фото паспорта, поэтому подсказку шага 2 присылаем заново внизу,
+  // а старую убираем (редактирование «на месте» происходило бы выше фото, и казалось, что ничего не произошло).
+  const currentQuestionId = await moveDown(ctx, data, 'await_inn');
   return advance(ctx, data, 'await_inn', {
     currentQuestionId,
     passportProvided: true,
@@ -745,12 +747,13 @@ const awaitPassport: Step_ = async ({ ctx, data }) => {
 const awaitInn: Step_ = async ({ ctx, data }) => {
   const text = readText(ctx);
   if (!hasDocumentPhoto(ctx) && !(text && isValidIdFormat(text))) return manualError(ctx, data, MANUAL_ID_INVALID);
-  await deleteServiceMessages(ctx, data);
-  for (const id of [...withUserMessage(ctx, data), data.currentQuestionId]) await deleteMessage(ctx, id);
+  // Сначала видимый результат («Проверяем» → «Верификация» → вопрос о связи), уборка — потом и в фоне:
+  // каждое удаление — отдельный запрос к MAX с паузой, при медленной сети они задерживали ответ на десятки секунд.
   await demoVerify(ctx, 'паспорт + ИНН / СНИЛС');
   const updated: ProfileData = { ...data, verified: true, idDocumentProvided: true };
   await sendText(ctx, recapText('verificationMethod', updated));
   const currentQuestionId = await ask(ctx, 'await_contact', updated);
+  cleanupInBackground(ctx, [...(data.serviceMessageIds ?? []), ...withUserMessage(ctx, data), data.currentQuestionId]);
   return transition.goto('await_contact', {
     verified: true,
     idDocumentProvided: true,
@@ -759,6 +762,23 @@ const awaitInn: Step_ = async ({ ctx, data }) => {
     serviceMessageIds: [],
   });
 };
+
+/** Присылает вопрос шага новым сообщением внизу чата и только потом удаляет прежнее. Возвращает id нового. */
+async function moveDown(ctx: BotContext, data: ProfileData, step: Step): Promise<string | undefined> {
+  const currentQuestionId = await ask(ctx, step, data);
+  await deleteMessage(ctx, data.currentQuestionId);
+  return currentQuestionId;
+}
+
+/**
+ * Уборка сообщений в фоне: результат не ждёт удаления. Сообщения пользователя MAX в личном диалоге удалять
+ * не даёт — попытка не критична, отказ логируется.
+ */
+function cleanupInBackground(ctx: BotContext, ids: Array<string | undefined>): void {
+  void (async () => {
+    for (const id of ids) await deleteMessage(ctx, id);
+  })().catch((error) => console.error('Фоновая уборка сообщений не удалась (не критично)', error));
+}
 
 /**
  * Показывает вопрос шага на месте текущего сообщения (редактирует его). Если сообщения уже нет —

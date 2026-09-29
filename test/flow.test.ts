@@ -357,7 +357,9 @@ test('паспорт текстом: нужны все данные, бот на
   const full = await runStep('await_passport', { currentQuestionId: 'v' }, { text: 'Серия и номер: 45 12 345678\nКем выдан: ГУ МВД России по г. Москве\nДата выдачи: 12.05.2020\nКод подразделения: 770-001\nДата рождения: 01.02.2004\nМесто рождения: гор. Москва\nАдрес регистрации: г. Москва, ул. Ленина, д. 1, кв. 2' });
   assert.equal(stepOf(full.result), 'await_inn');
   assert.equal(dataOf(full.result).passportProvided, true);
-  assert.ok(full.edits[0].text.includes('один документ на выбор'));
+  assert.ok(full.replies.at(-1)!.includes('один документ на выбор'), 'подсказка шага 2 приходит новым сообщением внизу');
+  assert.equal(full.edits.length, 0, 'старое сообщение выше фото не редактируется');
+  assert.ok(full.deleted.includes('v'), 'а прежняя подсказка удаляется');
 });
 
 test('шаг 2: ИНН или СНИЛС номером, неверный номер отклоняется', async () => {
@@ -396,6 +398,7 @@ test('после ручной проверки подсказка удаляет
     { text: '1234567890', messageId: 'inn-text' },
   );
   assert.equal(stepOf(result), 'await_contact');
+  await new Promise((resolve) => setTimeout(resolve, 30)); // уборка идёт в фоне
   for (const id of ['passport-photo', 'inn-text', 'v']) assert.ok(deleted.includes(id), id);
   const recapIndex = replies.findIndex((r) => r.startsWith('✅ **Верификация:**'));
   assert.ok(recapIndex >= 0);
