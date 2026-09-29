@@ -73,10 +73,12 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
     if (!kind || chatId === undefined) continue;
     const message = reminderMessage(kind);
 
+    let reminderId: string | undefined;
     try {
-      await bot.api.sendMessageToChat(chatId, message.text, {
+      const sent = await bot.api.sendMessageToChat(chatId, message.text, {
         attachments: [actionsKeyboard([{ label: message.button, payload: message.payload }])],
       });
+      reminderId = (sent as { body?: { mid?: string } } | undefined)?.body?.mid;
     } catch (error) {
       console.error('Не удалось отправить напоминание', key, kind, error);
       // 403 — человек заблокировал бота или диалог приостановлен: повторять каждые 30 секунд бессмысленно.
@@ -101,6 +103,8 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
     if (!fresh?.scenario) continue;
     const freshData = fresh.scenario.data as ProfileData;
     const patch: Partial<ProfileData> = { remindersSent: [...(freshData.remindersSent ?? []), kind] };
+    // Запоминаем напоминание: оно удалится, когда человек вернётся к анкете.
+    if (reminderId) patch.reminderMessageIds = [...(freshData.reminderMessageIds ?? []), reminderId];
     if (dropQuestion && freshData.currentQuestionId === data.currentQuestionId) patch.currentQuestionId = undefined;
     store.set(key, { ...fresh, scenario: { ...fresh.scenario, data: { ...freshData, ...patch } } });
   }

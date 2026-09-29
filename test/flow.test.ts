@@ -529,7 +529,7 @@ function fakeReminderEnv(data: ProfileData, step: Step) {
     api: {
       sendMessageToChat: async (chatId: number, text: string) => {
         sent.push({ chatId, text });
-        return {};
+        return { body: { mid: `reminder-${sent.length}` } };
       },
       deleteMessage: async (id: string) => {
         deletedIds.push(id);
@@ -549,6 +549,7 @@ test('напоминание удаляет вопрос без ответа и 
   const data = env.sessions.get('7:42')!.scenario!.data as ProfileData;
   assert.equal(data.currentQuestionId, undefined);
   assert.deepEqual(data.remindersSent, ['incomplete_30m']);
+  assert.deepEqual(data.reminderMessageIds, ['reminder-1'], 'id напоминания запоминается — чтобы удалить его после возврата');
 });
 
 test('напоминание: 403 (диалог приостановлен) — больше не повторяем, вопрос не трогаем', async () => {
@@ -766,6 +767,25 @@ test('напоминание на шаге имени: приветствие у
   assert.ok(back.replies[0].includes('прокачать карьеру'));
   assert.ok(back.replies[0].trimEnd().endsWith('Как тебя зовут?'));
   assert.equal(dataOf(back.result).currentQuestionId, 'm1', 'приветствие снова отслеживается');
+});
+
+test('«Вернуться»: напоминания удаляются, вопрос приходит заново; служебные события их не трогают', async () => {
+  const { markActivity } = await import('../src/start.js');
+  const deleted: string[] = [];
+  const ctxOf = (updateType: string) => ({ updateType, chatId: 42, deleteMessage: async (id: string) => void deleted.push(id) }) as unknown as BotContext;
+  const data: ProfileData = { reminderMessageIds: ['r1', 'r2'], remindersSent: ['incomplete_30m', 'incomplete_2h'], lastActivityAt: 1 };
+
+  const muted = markActivity(ctxOf('dialog_muted'), data, 100);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(deleted, [], 'служебное событие напоминания не удаляет');
+  assert.deepEqual(muted.reminderMessageIds, ['r1', 'r2']);
+
+  const pressed = markActivity(ctxOf('message_callback'), data, 100);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(deleted.sort(), ['r1', 'r2']);
+  assert.deepEqual(pressed.reminderMessageIds, []);
+  assert.deepEqual(pressed.remindersSent, []);
+  assert.equal(pressed.lastActivityAt, 100);
 });
 
 test('напоминаний до согласия нет', () => {

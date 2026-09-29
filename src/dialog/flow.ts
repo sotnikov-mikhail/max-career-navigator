@@ -776,7 +776,7 @@ async function moveDown(ctx: BotContext, data: ProfileData, step: Step): Promise
  * Уборка сообщений в фоне: результат не ждёт удаления. Сообщения пользователя MAX в личном диалоге удалять
  * не даёт — попытка не критична, отказ логируется.
  */
-function cleanupInBackground(ctx: BotContext, ids: Array<string | undefined>): void {
+export function cleanupInBackground(ctx: BotContext, ids: Array<string | undefined>): void {
   void (async () => {
     for (const id of ids) await deleteMessage(ctx, id);
   })().catch((error) => console.error('Фоновая уборка сообщений не удалась (не критично)', error));

@@ -55,6 +55,8 @@ export interface DialogState {
   midpointSent?: boolean;
   /** id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */
   serviceMessageIds?: string[];
+  /** id отправленных напоминаний — удаляются, как только человек вернулся к анкете. */
+  reminderMessageIds?: string[];
   lastActivityAt?: number;
   remindersSent?: string[];
   completedAt?: number;

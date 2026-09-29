@@ -4,7 +4,7 @@ import { careerScenario } from './dialog/flow.js';
 import { RESTART_HINT } from './dialog/script.js';
 import type { BotContext, BotSession, ProfileData } from './dialog/types.js';
 import { startReminders } from './reminders.js';
-import { commandPattern, startFresh, userActionsOnly } from './start.js';
+import { commandPattern, markActivity, startFresh, userActionsOnly } from './start.js';
 import { FileSessionStore } from './session/fileStore.js';
 import { deleteSubmissionsForChat } from './services/profileRegistryMock.js';
 
@@ -51,7 +51,8 @@ bot.use(async (ctx, next) => {
   await next();
   const after = ctx.session?.scenario;
   if (after) {
-    after.data = { ...(after.data as ProfileData), lastActivityAt: Date.now(), remindersSent: [] };
+    // Человек вернулся к анкете (нажал кнопку или ответил) — присланные напоминания удаляются.
+    after.data = markActivity(ctx, after.data as ProfileData);
   }
 });
 

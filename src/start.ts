@@ -1,6 +1,6 @@
 import type { ScenarioEngine } from '@maxhub/max-bot-api';
-import { careerScenario } from './dialog/flow.js';
-import type { BotContext } from './dialog/types.js';
+import { careerScenario, cleanupInBackground } from './dialog/flow.js';
+import type { BotContext, ProfileData } from './dialog/types.js';
 
 /**
  * В анкету попадают только действия пользователя: сообщение и нажатие кнопки. Служебные события MAX
@@ -19,6 +19,17 @@ export async function userActionsOnly(ctx: { updateType: string }, next: () => P
  */
 export function commandPattern(name: string): RegExp {
   return new RegExp(`^${name}(?:@\\S+)?(?:\\s.*)?$`, 'is');
+}
+
+/**
+ * Отметка активности после события. Если это действие пользователя (сообщение или кнопка), он вернулся к анкете:
+ * присланные напоминания удаляются, счётчик напоминаний сбрасывается. Служебные события напоминания не трогают.
+ */
+export function markActivity(ctx: BotContext, data: ProfileData, now = Date.now()): ProfileData {
+  const userAction = ctx.updateType === 'message_created' || ctx.updateType === 'message_callback';
+  const stale = userAction ? (data.reminderMessageIds ?? []) : [];
+  if (stale.length > 0) cleanupInBackground(ctx, stale);
+  return { ...data, lastActivityAt: now, remindersSent: [], reminderMessageIds: userAction ? [] : data.reminderMessageIds };
 }
 
 /**
