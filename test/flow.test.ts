@@ -514,6 +514,22 @@ test('напоминание удаляет вопрос без ответа и 
   assert.deepEqual(data.remindersSent, ['incomplete_30m']);
 });
 
+test('напоминание: 403 (диалог приостановлен) — больше не повторяем, вопрос не трогаем', async () => {
+  const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'q-open' }, 'await_field');
+  let attempts = 0;
+  (env.bot.api as unknown as { sendMessageToChat: () => Promise<never> }).sendMessageToChat = async () => {
+    attempts += 1;
+    throw Object.assign(new Error('403: error.dialog.suspended'), { status: 403 });
+  };
+  await sendDueReminders(env.bot, env.store, 1 + 30 * MIN);
+  await sendDueReminders(env.bot, env.store, 1 + 31 * MIN);
+  await sendDueReminders(env.bot, env.store, 1 + 130 * MIN);
+  assert.equal(attempts, 1, 'после 403 повторных попыток нет');
+  assert.deepEqual(env.deletedIds, [], 'вопрос не удаляется, пока напоминание не дошло');
+  const data = env.sessions.get('7:42')!.scenario!.data as ProfileData;
+  assert.deepEqual(data.remindersSent, ['incomplete_30m', 'incomplete_2h']);
+});
+
 test('после финала напоминание не отправляется', async () => {
   const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'final' }, 'await_final_action');
   await sendDueReminders(env.bot, env.store, 1 + 300 * MIN);

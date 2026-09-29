@@ -13,20 +13,23 @@ const scenarios = new ScenarioEngine<BotContext>();
 scenarios.register(careerScenario);
 const store = new FileSessionStore<BotSession>(config.sessionsFile);
 
-/** Сеть до MAX может быть недоступна в момент старта — не падаем, а повторяем попытку. */
-async function getMyInfoWithRetry(): Promise<Awaited<ReturnType<typeof bot.api.getMyInfo>>> {
+/**
+ * Сеть до MAX может быть недоступна в момент старта (перебои, VPN) — не падаем, а повторяем попытку.
+ * Без этого один таймаут при перезапуске останавливал бота насовсем.
+ */
+async function withRetry<T>(what: string, action: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await bot.api.getMyInfo();
+      return await action();
     } catch (error) {
       const delay = Math.min(60, 5 * attempt);
-      console.error(`Не удалось подключиться к MAX (попытка ${attempt}), повтор через ${delay} с`, (error as Error).message);
+      console.error(`Не удалось подключиться к MAX: ${what} (попытка ${attempt}), повтор через ${delay} с`, (error as Error).message);
       await new Promise((resolve) => setTimeout(resolve, delay * 1000));
     }
   }
 }
 
-const info = await getMyInfoWithRetry();
+const info = await withRetry('данные бота', () => bot.api.getMyInfo());
 console.log(`Бот @${info.username} авторизован, запускаю long polling...`);
 
 // Меню команд — некритично: при сбое сети бот всё равно запускается.
@@ -96,4 +99,5 @@ bot.catch(async (err, ctx) => {
 
 startReminders(bot, store);
 
-await bot.start();
+// SDK при запуске делает ещё один запрос к MAX и при сбое сети завершает процесс — повторяем и его.
+await withRetry('запуск long polling', () => bot.start());

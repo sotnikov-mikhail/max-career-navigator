@@ -54,6 +54,14 @@ function chatIdFromKey(key: string): number | undefined {
   return Number.isFinite(chatId) ? chatId : undefined;
 }
 
+function markRemindersSent(store: IterableSessionStore, key: string, kinds: ReminderKind[]): void {
+  const fresh = store.get(key);
+  if (!fresh?.scenario) return;
+  const data = fresh.scenario.data as ProfileData;
+  const remindersSent = [...new Set([...(data.remindersSent ?? []), ...kinds])];
+  store.set(key, { ...fresh, scenario: { ...fresh.scenario, data: { ...data, remindersSent } } });
+}
+
 export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSessionStore, now = Date.now()): Promise<void> {
   for (const key of store.keys()) {
     const session = store.get(key);
@@ -71,6 +79,9 @@ export async function sendDueReminders(bot: Bot<BotContext>, store: IterableSess
       });
     } catch (error) {
       console.error('Не удалось отправить напоминание', key, kind, error);
+      // 403 — человек заблокировал бота или диалог приостановлен: повторять каждые 30 секунд бессмысленно.
+      // Помечаем оба напоминания отправленными; когда человек снова напишет боту, счётчик сбросится.
+      if ((error as { status?: number }).status === 403) markRemindersSent(store, key, ['incomplete_30m', 'incomplete_2h']);
       continue;
     }
 
