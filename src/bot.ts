@@ -22,6 +22,10 @@ async function withRetry<T>(what: string, action: () => Promise<T>): Promise<T> 
     try {
       return await action();
     } catch (error) {
+      // 401 — токен недействителен: повторять бессмысленно, останавливаемся с понятным сообщением.
+      if ((error as { status?: number }).status === 401) {
+        throw new Error('Токен бота недействителен (401). Проверьте BOT_TOKEN в файле .env.');
+      }
       const delay = Math.min(60, 5 * attempt);
       console.error(`Не удалось подключиться к MAX: ${what} (попытка ${attempt}), повтор через ${delay} с`, (error as Error).message);
       await new Promise((resolve) => setTimeout(resolve, delay * 1000));
