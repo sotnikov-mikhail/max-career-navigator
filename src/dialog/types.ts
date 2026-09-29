@@ -49,6 +49,8 @@ export interface DialogState {
   passportPhotos?: number;
   /** Сообщения ручной проверки (подсказки шагов и то, что прислал пользователь) — удаляются после неё. */
   manualMessageIds?: string[];
+  /** id сообщения с карточкой профиля — удаляется, если человек меняет ответ после финала. */
+  profileCardId?: string;
   cityFromGeo?: boolean;
   midpointSent?: boolean;
   /** id сообщений об ошибках ввода — удаляются, когда пользователь ответил правильно. */

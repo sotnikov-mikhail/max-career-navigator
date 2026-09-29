@@ -9,7 +9,7 @@
     "dev": "NODE_EXTRA_CA_CERTS=certs/russian_trusted_ca_bundle.pem tsx watch src/bot.ts",
     "start": "NODE_EXTRA_CA_CERTS=certs/russian_trusted_ca_bundle.pem node dist/bot.js",
     "build": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "BOT_TOKEN=test SUBMISSIONS_FILE=/tmp/max-career-navigator-test-submissions.json node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@maxhub/max-bot-api": "0.3.1",

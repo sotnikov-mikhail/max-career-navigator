@@ -119,6 +119,7 @@ const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
   relocation: 'await_relocation',
   overtime: 'await_overtime',
   motivation: 'await_motivation',
+  contact: 'await_contact',
 };
 
 /** Варианты ответа для шага с выбором (для проверки payload). */
@@ -800,7 +801,7 @@ const awaitContact: Step_ = async ({ ctx, data }) => {
   if (!option) return sendService(ctx, data, invalidChoicePrompt());
   await acknowledgeCallback(ctx);
   return answer(ctx, data, 'contact', { contact: option.id }, 'await_final_action', {
-    back: false,
+    back: true,
     before: async (_ctx, updated) => {
       submitProfileMock(ctx.chatId ?? 0, profileAnswers(updated));
       return { completedAt: Date.now() };
@@ -873,8 +874,9 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
   if (payload === 'profile') {
     // Кнопка одноразовая: убираем её с финального сообщения, чтобы карточка не дублировалась.
     await editMessage(ctx, ctx.messageId, FINAL_MESSAGE);
-    await sendText(ctx, profileCard(data));
-    return transition.stay();
+    const card = await ctx.reply(profileCard(data), { format: 'markdown' });
+    // Запоминаем карточку: если человек изменит ответ, старая карточка удалится, чтобы не висеть с прежними данными.
+    return transition.stay({ profileCardId: card.body.mid });
   }
   return transition.stay();
 };
@@ -883,11 +885,6 @@ const awaitFinalAction: Step_ = async ({ ctx, data }) => {
 // «Изменить» и «Вернуться» из напоминаний
 // ---------------------------------------------------------------------------
 
-/**
- * «Изменить» у последнего ответа: текущий вопрос удаляется, свёрнутый блок раскрывается обратно
- * в вопрос с вариантами. После нового ответа блок снова сворачивается, а удалённый вопрос
- * приходит заново — это делает обычный `answer`.
- */
 /**
  * Убирает «Изменить» у последнего ответа, когда дальше идут шаги, из которых назад не возвращаемся
  * (выбор банка, ручная проверка документов).
@@ -898,6 +895,11 @@ async function dropBackButton(ctx: BotContext, data: ProfileData): Promise<Parti
   return { lastAnswered: undefined };
 }
 
+/**
+ * «Изменить» у последнего ответа: текущий вопрос удаляется, свёрнутый блок раскрывается обратно
+ * в вопрос с вариантами. После нового ответа блок снова сворачивается, а удалённый вопрос
+ * приходит заново — это делает обычный `answer`.
+ */
 async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
   await acknowledgeCallback(ctx);
   const field = data.lastAnswered;
@@ -905,6 +907,7 @@ async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
   const step = field ? FIELD_STEP[field] : undefined;
   if (!field || !blockId || !step || ctx.messageId !== blockId) return transition.stay();
   await deleteMessage(ctx, data.currentQuestionId);
+  await deleteMessage(ctx, data.profileCardId);
   await deleteServiceMessages(ctx, data);
   // Мотивация раскрывается с уже отмеченными вариантами — можно снять один и выбрать другой.
   const motivationDraft = step === 'await_motivation' && Array.isArray(data.motivation) ? data.motivation : undefined;
@@ -914,6 +917,7 @@ async function goBack(ctx: BotContext, data: ProfileData): Promise<Transition> {
     currentQuestionId: blockId,
     lastAnswered: undefined,
     motivationDraft,
+    profileCardId: undefined,
     serviceMessageIds: [],
   });
 }

@@ -44,7 +44,8 @@ export function submitProfileMock(chatId: number, profile: ProfileAnswers): Subm
     demo: true,
     profile,
   };
-  const submissions = readSubmissions();
+  // Один профиль на чат: повторная отправка (после «Изменить») заменяет прежнюю запись, а не добавляет вторую.
+  const submissions = readSubmissions().filter((r) => r.chatId !== chatId);
   submissions.push(record);
   mkdirSync(dirname(config.submissionsFile), { recursive: true });
   writeFileAtomic(config.submissionsFile, JSON.stringify(submissions, null, 2));

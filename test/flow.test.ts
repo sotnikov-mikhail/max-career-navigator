@@ -449,6 +449,39 @@ test('финал: кнопка открывает карточку профил�
   assert.ok(!/демо/i.test(profile.replies[0]));
 });
 
+test('связь с экспертами: у ответа есть «Изменить»; после финала он возвращает к выбору и убирает финал и карточку', async () => {
+  const answered = await runStep('await_contact', { name: 'Аня', currentQuestionId: 'k' }, { callbackPayload: 'contact_online' });
+  const recap = answered.edits.find((e) => e.id === 'k')!;
+  assert.ok(recap.keyboardText.includes('Изменить'));
+  assert.equal(dataOf(answered.result).lastAnswered, 'contact');
+
+  const data: ProfileData = {
+    name: 'Аня', contact: 'contact_online', lastAnswered: 'contact', blockIds: { contact: 'k' },
+    currentQuestionId: 'fin', profileCardId: 'card',
+  };
+  const back = await runIntercept('await_final_action', data, { callbackPayload: 'back', messageId: 'k' });
+  assert.equal(stepOf(back.result), 'await_contact');
+  assert.deepEqual(back.deleted.sort(), ['card', 'fin']);
+  assert.ok(back.edits.find((e) => e.id === 'k')!.keyboardText.includes('Онлайн'));
+  assert.equal(dataOf(back.result).profileCardId, undefined);
+
+  const again = await runStep('await_contact', { name: 'Аня', currentQuestionId: 'k' }, { callbackPayload: 'contact_offline' });
+  assert.equal(stepOf(again.result), 'await_final_action');
+  assert.equal(dataOf(again.result).contact, 'contact_offline');
+});
+
+test('повторная отправка профиля заменяет запись этого чата, а не добавляет вторую', async () => {
+  const { submitProfileMock } = await import('../src/services/profileRegistryMock.js');
+  const { config } = await import('../src/config.js');
+  const { readFileSync } = await import('node:fs');
+  const chat = 987654321;
+  submitProfileMock(chat, { name: 'Аня', contact: 'contact_online' });
+  submitProfileMock(chat, { name: 'Аня', contact: 'contact_offline' });
+  const mine = (JSON.parse(readFileSync(config.submissionsFile, 'utf-8')) as Array<{ chatId: number; profile: { contact: string } }>).filter((r) => r.chatId === chat);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].profile.contact, 'contact_offline');
+});
+
 test('финальное сообщение без слова «демо»', async () => {
   const { replies } = await runStep('await_contact', { currentQuestionId: 'k' }, { callbackPayload: 'contact_offline' });
   assert.ok(replies.at(-1)!.includes('профиль готов'));
