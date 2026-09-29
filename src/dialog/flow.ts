@@ -104,7 +104,7 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
 ]);
 
 /** Шаги, чьё сообщение запоминается, чтобы удалить его («Изменить», напоминание, «Продолжить»). */
-const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_consent', 'await_midpoint', 'await_passport', 'await_inn']);
+const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_consent', 'await_midpoint', 'await_passport', 'await_inn', 'await_final_action']);
 
 /** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
 const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {

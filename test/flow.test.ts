@@ -454,6 +454,7 @@ test('связь с экспертами: у ответа есть «Измен�
   const recap = answered.edits.find((e) => e.id === 'k')!;
   assert.ok(recap.keyboardText.includes('Изменить'));
   assert.equal(dataOf(answered.result).lastAnswered, 'contact');
+  assert.equal(dataOf(answered.result).currentQuestionId, 'm1', 'id финального сообщения запоминается — иначе его нечем удалить');
 
   const data: ProfileData = {
     name: 'Аня', contact: 'contact_online', lastAnswered: 'contact', blockIds: { contact: 'k' },
