@@ -4,6 +4,7 @@ import { careerScenario } from './dialog/flow.js';
 import { RESTART_HINT } from './dialog/script.js';
 import type { BotContext, BotSession, ProfileData } from './dialog/types.js';
 import { startReminders } from './reminders.js';
+import { startFresh } from './start.js';
 import { FileSessionStore } from './session/fileStore.js';
 import { deleteSubmissionsForChat } from './services/profileRegistryMock.js';
 
@@ -66,18 +67,17 @@ bot.command('cancel', async (ctx) => {
   await ctx.reply(canceled ? 'Ок, отменил текущий шаг. Напиши /start, чтобы начать заново.' : 'Сейчас нет активного сценария.');
 });
 
-bot.command('start', async (ctx, next) => {
-  ctx.scenario.cancel();
-  return next();
-}, scenarios.start(careerScenario));
+const begin = startFresh(scenarios);
+
+// «Начать» и /start — всегда с приветствия. Обработчики стоят ДО перехватчика анкеты: иначе при уже
+// начатой анкете событие «Начать» уходило бы в её текущий шаг («выбери один из вариантов»).
+bot.command('start', begin);
+bot.on('bot_started', begin);
 
 bot.use(scenarios.interceptMiddleware());
 
-bot.on('bot_started', scenarios.start(careerScenario));
-
-bot.on('message_created', async (ctx) => {
-  await ctx.reply(`Не совсем понял. ${RESTART_HINT}`);
-});
+// Сообщение, когда анкеты нет (первое обращение, /cancel, истёк срок) — начинаем с приветствия.
+bot.on('message_created', begin);
 
 // Кнопка из старого сообщения, когда сценария уже нет (сброшен /cancel или устарел) — не молчим.
 bot.on('message_callback', async (ctx) => {

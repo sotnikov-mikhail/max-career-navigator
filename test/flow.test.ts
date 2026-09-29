@@ -703,3 +703,39 @@ test('согласие на ПДн: сразу после имени отдел�
 test('напоминаний до согласия нет', () => {
   assert.equal(dueReminder('await_consent', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });
+
+test('«Начать» и /start: при уже начатой анкете приходит приветствие, а не «выбери один из вариантов»', async () => {
+  const { ScenarioEngine } = await import('@maxhub/max-bot-api');
+  const { startFresh } = await import('../src/start.js');
+  const scenarios = new ScenarioEngine<BotContext>();
+  scenarios.register(careerScenario);
+  const begin = startFresh(scenarios);
+
+  async function run(session: BotSession) {
+    const replies: string[] = [];
+    const ctx = {
+      session,
+      has: () => false,
+      reply: async (text: string) => {
+        replies.push(text);
+        return { body: { mid: `m${replies.length}` } } as never;
+      },
+    } as unknown as BotContext;
+    await scenarios.controllerMiddleware()(ctx, async () => undefined);
+    await begin(ctx);
+    return { replies, session: ctx.session! };
+  }
+
+  const midway = await run({ scenario: { id: 'career-navigator', step: 'await_study_stage', data: { name: 'Аня', consentAt: 1 } } });
+  assert.ok(midway.replies[0].includes('Привет'));
+  assert.ok(!midway.replies.join('').includes('выбери один из вариантов'));
+  assert.equal(midway.session.scenario!.step, 'await_name');
+  assert.equal((midway.session.scenario!.data as ProfileData).name, undefined, 'старые ответы сброшены');
+
+  const finished = await run({ scenario: { id: 'career-navigator', step: 'await_final_action', data: { name: 'Аня', verified: true } } });
+  assert.ok(finished.replies[0].includes('Привет'));
+
+  const fresh = await run({});
+  assert.ok(fresh.replies[0].includes('Привет'));
+  assert.equal(fresh.session.scenario!.step, 'await_name');
+});
