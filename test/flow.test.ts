@@ -753,6 +753,21 @@ test('согласие на ПДн: сразу после имени отдел�
   assert.equal(stepOf(again.result), 'await_study_stage', 'повторно согласие не спрашиваем');
 });
 
+test('напоминание на шаге имени: приветствие удаляется, «Вернуться» присылает его целиком', async () => {
+  const env = fakeReminderEnv({ lastActivityAt: 1, currentQuestionId: 'greeting-msg' }, 'await_name');
+  await sendDueReminders(env.bot, env.store, 1 + 30 * MIN);
+  assert.deepEqual(env.deletedIds, ['greeting-msg']);
+  const data = env.sessions.get('7:42')!.scenario!.data as ProfileData;
+  assert.equal(data.currentQuestionId, undefined);
+
+  const back = await runIntercept('await_name', data, { callbackPayload: 'resume' });
+  assert.equal(back.result!.type, 'stay');
+  assert.ok(back.replies[0].includes('Привет'), 'приветствие целиком');
+  assert.ok(back.replies[0].includes('прокачать карьеру'));
+  assert.ok(back.replies[0].trimEnd().endsWith('Как тебя зовут?'));
+  assert.equal(dataOf(back.result).currentQuestionId, 'm1', 'приветствие снова отслеживается');
+});
+
 test('напоминаний до согласия нет', () => {
   assert.equal(dueReminder('await_consent', { lastActivityAt: 1 }, 1 + 300 * MIN), undefined);
 });

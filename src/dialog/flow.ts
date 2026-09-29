@@ -104,7 +104,7 @@ const BLOCK_STEPS: ReadonlySet<Step> = new Set<Step>([
 ]);
 
 /** Шаги, чьё сообщение запоминается, чтобы удалить его («Изменить», напоминание, «Продолжить»). */
-const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_consent', 'await_midpoint', 'await_passport', 'await_inn', 'await_final_action']);
+const TRACKED_STEPS: ReadonlySet<Step> = new Set<Step>([...BLOCK_STEPS, 'await_name', 'await_consent', 'await_midpoint', 'await_passport', 'await_inn', 'await_final_action']);
 
 /** На какой шаг вернуться, если нажать «Изменить» у блока этого поля. */
 const FIELD_STEP: Partial<Record<keyof ProfileAnswers, Step>> = {
@@ -167,7 +167,8 @@ function questionView(step: Step, data: ProfileData): QuestionView {
     case 'await_consent':
       return { text: consentPrompt(data.pendingName), keyboard: consentKeyboard(true) };
     case 'await_name':
-      return { text: NAME_QUESTION };
+      // Приветствие и есть вопрос об имени: при возврате из напоминания показываем его целиком, а не «Как тебя зовут?».
+      return { text: GREETING };
     case 'await_study_stage':
       return { text: studyStagePrompt(data.name), keyboard: autoKeyboard(options) };
     case 'await_goal':
@@ -458,9 +459,10 @@ function choiceStep(field: keyof ProfileAnswers, next: (data: ProfileData) => St
 // Шаги сценария
 // ---------------------------------------------------------------------------
 
-const greet: Step_ = async ({ ctx }) => {
-  await sendText(ctx, GREETING);
-  return transition.goto('await_name');
+const greet: Step_ = async ({ ctx, data }) => {
+  // id приветствия запоминаем: напоминание и «Вернуться» работают с ним как с любым вопросом анкеты.
+  const currentQuestionId = await ask(ctx, 'await_name', data);
+  return transition.goto('await_name', { currentQuestionId });
 };
 
 function consentKeyboard(withText: boolean): Keyboard {
